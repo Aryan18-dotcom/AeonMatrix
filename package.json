@@ -1,0 +1,27 @@
+{
+  "name": "cron-automation",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Bento Cron Management Control Plane for Render",
+  "main": "api/server.js",
+  "scripts": {
+    "start": "node api/server.js",
+    "dev": "nodemon --ignore storage/ api/server.js"
+  },
+  "dependencies": {
+    "@ai-sdk/groq": "^4.0.5",
+    "@tavily/core": "^0.7.6",
+    "ai": "^3.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^1.1.2",
+    "nodemailer": "^9.0.3",
+    "nodemon": "^3.1.14",
+    "openai": "^4.104.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.34.7",
+    "zod": "^3.23.8"
+  }
+}

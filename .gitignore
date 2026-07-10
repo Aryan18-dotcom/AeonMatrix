@@ -1,0 +1,23 @@
+# Dependency management directories
+node_modules/
+jspm_packages/
+
+# System Environment variables parameters database 
+.env
+.env.local
+.env.*.local
+
+# Hermes Secure File Data Storage Cluster
+storage/config.json
+storage/jobs.json
+
+# Local logs & server diagnostic traces
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Operating System specific tracking files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>AeonMatrix | Hermes AI Automation Matrix, Autonomous Cron Platform</title>
+  <meta name="description" content="Hermes AI Automation Matrix is an advanced, multi-tenant control plane for adaptive natural language prompt parsing, live Tavily web research synthesis, and secure distributed cron scheduling." />
+  <meta name="keywords" content="Hermes AI, Cron Automation, AI Agent Scheduler, Aryan Chheda, Full Stack Automation, Natural Language Cron, Render Deployment Platform" />
+  <meta name="author" content="Aryan Chheda" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://your-production-domain.render.com/" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Hermes AI Automation Matrix — Autonomous Cron Plane" />
+  <meta property="og:description" content="Deploy distributed execution schedules natively using human natural language statements backed by advanced web research agents." />
+  <meta property="og:url" content="https://your-production-domain.render.com/" />
+  <meta property="og:image" content="/banner-og.png" />
+  <meta property="og:site_name" content="Hermes AI Automation Matrix" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Hermes AI Automation Matrix — Autonomous Cron Plane" />
+  <meta name="twitter:description" content="Transform conversational inputs into highly resilient, precise distributed cron task scheduling frameworks." />
+  <meta name="twitter:image" content="/banner-og.png" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Hermes AI Automation Matrix",
+    "operatingSystem": "Cloud Infrastructure Engine",
+    "applicationCategory": "Automation / Developer Tools Platforms",
+    "author": {
+      "@type": "Person",
+      "name": "Aryan Chheda",
+      "jobTitle": "Full-Stack Developer & Frontend Designer",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Ahmedabad",
+        "addressRegion": "Gujarat",
+        "addressCountry": "India"
+      }
+    },
+    "description": "An automated cron task scheduling matrix providing live web synthesis crawling, custom intent parameters extraction, and robust dual security authentication.",
+    "browserRequirements": "Requires HTML5 Web Audio API and Native Javascript Engine capabilities."
+  }
+  </script>
+
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" href="/favicon.ico" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at top, #0f172a 0%, #020617 60%, #000000 100%);
+      color: #f8fafc;
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(24px);
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .glass-card:hover {
+      border-color: rgba(99, 102, 241, 0.25);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+    }
+    .input-field {
+      background: rgba(2, 6, 23, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      transition: all 0.3s ease;
+    }
+    .input-field:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.15);
+    }
+  </style>
+</head>
+<body class="min-h-screen text-sm antialiased">
+
+  <div id="authGate" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-3xl transition-all duration-500">
+    <div class="w-full max-w-md p-8 glass-card rounded-3xl animate__animated animate__fadeInUp shadow-2xl">
+      <div class="text-center mb-6">
+        <div class="h-12 w-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mx-auto mb-3 shadow-lg shadow-indigo-500/20">
+          <span class="h-3 w-3 rounded-full bg-indigo-400 animate-ping"></span>
+        </div>
+        <h2 class="text-2xl font-bold tracking-tight text-white">Hermes System Gateway</h2>
+        <p class="text-xs text-slate-400 mt-1">Provide secure access credentials to interface with loops</p>
+      </div>
+      <form id="authForm" class="space-y-4">
+        <div>
+          <label class="text-[11px] font-mono uppercase tracking-wider text-slate-400 block mb-1">User Identifier</label>
+          <input id="authUsername" type="text" required class="w-full input-field rounded-xl px-4 py-3 text-xs text-white outline-none" placeholder="Username (Admin / Trial)"/>
+        </div>
+        <div>
+          <label class="text-[11px] font-mono uppercase tracking-wider text-slate-400 block mb-1">Access Token Pin</label>
+          <input id="authPassword" type="password" required class="w-full input-field rounded-xl px-4 py-3 text-xs text-white outline-none" placeholder="••••••••"/>
+        </div>
+        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl text-xs tracking-wider uppercase transition shadow-lg shadow-indigo-600/30">
+          Authorize Session Access
+        </button>
+        <div id="authError" class="text-xs text-rose-400 text-center font-mono mt-2 min-h-[16px]"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="appContainer" class="hidden max-w-7xl mx-auto p-4 md:p-8 animate__animated animate__fadeIn">
+    
+    <header class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 border-b border-slate-800/60 pb-6">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-indigo-500 shadow-md shadow-indigo-500"></span>
+          Hermes AI Automation Control Plane
+        </h1>
+        <div class="flex items-center gap-2 mt-1">
+          <span id="roleBadge" class="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Scope: ADMIN</span>
+          <span class="text-xs text-slate-400">| Adaptive Cron Execution Engine Workspace</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 self-stretch sm:self-auto">
+        <button id="alarmToggle" class="flex-1 sm:flex-initial text-xs font-mono px-4 py-2 rounded-xl glass-card text-slate-300">Alarm Status: ON</button>
+        <button id="configBtn" class="flex-1 sm:flex-initial text-xs font-mono px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-lg shadow-indigo-600/20">Matrix Setup ⚙</button>
+        <button id="logoutBtn" class="text-xs font-mono px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">Exit</button>
+      </div>
+    </header>
+
+    <main class="grid lg:grid-cols-3 gap-6">
+      
+      <section class="glass-card rounded-3xl p-6 shadow-xl flex flex-col justify-between h-fit">
+        <form id="promptForm" class="space-y-4">
+          <div class="flex justify-between items-center">
+            <label class="text-xs font-bold font-mono uppercase tracking-wider text-slate-400">Structural Natural Prompt Input</label>
+            <span id="jobLimitIndicator" class="text-[11px] font-mono text-amber-400 hidden">Rule Slots Active: 0 / 3</span>
+          </div>
+          <textarea id="promptInput" rows="7" required class="w-full input-field rounded-2xl p-4 text-xs text-slate-100 outline-none resize-none" placeholder="Describe your automation pipeline logic here. For example: 'Every 5 minutes track updates matching my resume and report back to Telegram'"></textarea>
+          <button id="submitBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition shadow-xl shadow-indigo-600/30">
+            Compile & Inject Rule Map
+          </button>
+        </form>
+        <div id="statusBox" class="mt-4 text-[11px] font-mono p-4 bg-slate-950/80 border border-slate-900 rounded-2xl min-h-[100px] max-h-[160px] overflow-y-auto text-slate-400 leading-relaxed select-all">System Core idling. Awaiting instruction mapping vectors...</div>
+      </section>
+
+      <section class="lg:col-span-2 glass-card rounded-3xl p-6 shadow-xl flex flex-col">
+        <div class="flex justify-between items-center mb-6 border-b border-slate-800/50 pb-4">
+          <h2 class="text-xs font-bold font-mono tracking-widest uppercase text-slate-400">Live Orchestration Thread Pool</h2>
+          <button id="refreshBtn" class="text-xs font-mono px-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition">Refresh Pool State</button>
+        </div>
+        <div id="jobsContainer" class="grid sm:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="configOverlay" class="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center opacity-0 pointer-events-none transition-all duration-300 z-40">
+    <div class="glass-card max-w-2xl w-full mx-4 rounded-3xl border border-slate-800 p-6 max-h-[90vh] overflow-y-auto animate__animated">
+      <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-3">
+        <h3 class="text-sm font-bold font-mono uppercase tracking-wider text-indigo-400">System Integration Configuration Map</h3>
+        <button id="configClose" class="text-slate-400 hover:text-white text-lg">✕</button>
+      </div>
+      <form id="configForm" class="space-y-4">
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-900">
+            <label class="text-xs font-semibold text-slate-300 block mb-1">Telegram Credentials Gateway</label>
+            <input id="cfgTelegramBotToken" type="password" class="w-full input-field rounded-lg px-3 py-2 text-xs text-white outline-none mb-2" placeholder="Bot Access Token Key"/>
+            <input id="cfgTelegramOwnerId" type="text" class="w-full input-field rounded-lg px-3 py-2 text-xs text-white outline-none" placeholder="Numeric Owner Chat ID"/>
+          </div>
+          <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-900 flex flex-col justify-between">
+            <div>
+              <label class="text-xs font-semibold text-slate-300 block mb-1">SMTP Outbound Fallback Email</label>
+              <input id="cfgEmail" type="email" class="w-full input-field rounded-lg px-3 py-2 text-xs text-white outline-none" placeholder="alerts@domain.com"/>
+            </div>
+            <select id="cfgDefaultMedium" class="w-full input-field rounded-lg px-3 py-2 text-xs text-slate-300 outline-none mt-2">
+              <option value="site">Local UI Log Panel Only</option>
+              <option value="telegram">Telegram Bot Sync Vector</option>
+              <option value="email">Outgoing Secured SMTP Client</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-300 block mb-1">Personal Knowledge Graph Vector (Resume Profile Context)</label>
+          <textarea id="cfgResume" rows="5" class="w-full input-field rounded-xl p-3 text-xs text-slate-300 outline-none font-mono" placeholder="Paste data logs or profile layouts here for web search agent filtering loops..."></textarea>
+        </div>
+        <div class="flex justify-end gap-2 pt-4 border-t border-slate-800">
+          <button type="button" id="configCancel" class="text-xs font-mono px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">Cancel</button>
+          <button type="submit" class="text-xs font-mono px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-lg shadow-indigo-600/20">Commit Mapping Changes</button>
+        </div>
+      </form>
+      <div id="configStatus" class="mt-3 text-xs text-center font-mono tracking-wide"></div>
+    </div>
+  </div>
+
+  <script>
+    let SESSION_USER = localStorage.getItem('hermes_user') || null;
+    let SESSION_ROLE = localStorage.getItem('hermes_role') || null;
+    let notificationsEnabled = true;
+    let globalJobsCache = [];
+    
+    const notificationAudio = new Audio('/sound_way.mp3');
+
+    // UI Elements
+    const authGate = document.getElementById('authGate');
+    const authForm = document.getElementById('authForm');
+    const authUsername = document.getElementById('authUsername');
+    const authPassword = document.getElementById('authPassword');
+    const authError = document.getElementById('authError');
+    const appContainer = document.getElementById('appContainer');
+    const roleBadge = document.getElementById('roleBadge');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const jobLimitIndicator = document.getElementById('jobLimitIndicator');
+    const configBtn = document.getElementById('configBtn');
+    const configOverlay = document.getElementById('configOverlay');
+    const configClose = document.getElementById('configClose');
+    const configCancel = document.getElementById('configCancel');
+    const configForm = document.getElementById('configForm');
+    const configStatus = document.getElementById('configStatus');
+    const promptForm = document.getElementById('promptForm');
+    const promptInput = document.getElementById('promptInput');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusBox = document.getElementById('statusBox');
+    const jobsContainer = document.getElementById('jobsContainer');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const alarmToggle = document.getElementById('alarmToggle');
+
+    function checkSessionRouteState() {
+      if (SESSION_USER && SESSION_ROLE) {
+        authGate.classList.add('opacity-0', 'pointer-events-none');
+        appContainer.classList.remove('hidden');
+        roleBadge.textContent = `Scope: ${SESSION_ROLE.toUpperCase()}`;
+        
+        if (SESSION_ROLE === 'trial') {
+          configBtn.classList.add('hidden');
+          jobLimitIndicator.classList.remove('hidden');
+          roleBadge.className = 'text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20';
+          submitBtn.className = 'w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition shadow-xl shadow-amber-600/30';
+        } else {
+          configBtn.classList.remove('hidden');
+          jobLimitIndicator.classList.add('hidden');
+          roleBadge.className = 'text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20';
+          submitBtn.className = 'w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition shadow-xl shadow-indigo-600/30';
+        }
+        fetchJobs();
+        if(SESSION_ROLE === 'admin') loadConfig();
+      } else {
+        authGate.classList.remove('opacity-0', 'pointer-events-none');
+        appContainer.classList.add('hidden');
+      }
+    }
+
+    authForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      authError.textContent = '';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: authUsername.value.trim(), password: authPassword.value })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          SESSION_USER = data.username;
+          SESSION_ROLE = data.role;
+          localStorage.setItem('hermes_user', SESSION_USER);
+          localStorage.setItem('hermes_role', SESSION_ROLE);
+          authUsername.value = '';
+          authPassword.value = '';
+          checkSessionRouteState();
+        } else {
+          authError.textContent = data.error || 'Authentication parameters denied.';
+        }
+      } catch {
+        authError.textContent = 'Network communication interface fault.';
+      }
+    });
+
+    logoutBtn.addEventListener('click', () => {
+      localStorage.clear();
+      SESSION_USER = null;
+      SESSION_ROLE = null;
+      checkSessionRouteState();
+    });
+
+    configBtn.addEventListener('click', () => {
+      configOverlay.classList.remove('opacity-0', 'pointer-events-none');
+      configOverlay.firstElementChild.className = 'glass-card max-w-2xl w-full mx-4 rounded-3xl border border-slate-800 p-6 max-h-[90vh] overflow-y-auto animate__animated animate__zoomIn';
+    });
+    
+    function closeOverlay() {
+      configOverlay.classList.add('opacity-0', 'pointer-events-none');
+    }
+    configClose.addEventListener('click', closeOverlay);
+    configCancel.addEventListener('click', closeOverlay);
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const cfg = await res.json();
+          document.getElementById('cfgTelegramBotToken').value = cfg.telegramBotToken || '';
+          document.getElementById('cfgTelegramOwnerId').value = cfg.telegramOwnerId || '';
+          document.getElementById('cfgEmail').value = cfg.email || '';
+          document.getElementById('cfgDefaultMedium').value = cfg.defaultMedium || 'site';
+          document.getElementById('cfgResume').value = cfg.userResume || '';
+        }
+      } catch {}
+    }
+
+    configForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      configStatus.className = 'mt-3 text-xs text-center font-mono text-slate-400';
+      configStatus.textContent = 'Syncing keys securely inside system cluster registry...';
+      const payload = {
+        telegramBotToken: document.getElementById('cfgTelegramBotToken').value,
+        telegramOwnerId: document.getElementById('cfgTelegramOwnerId').value.trim(),
+        email: document.getElementById('cfgEmail').value.trim(),
+        defaultMedium: document.getElementById('cfgDefaultMedium').value,
+        userResume: document.getElementById('cfgResume').value.trim()
+      };
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          configStatus.className = 'mt-3 text-xs text-center font-mono text-emerald-400';
+          configStatus.textContent = '✅ Configurations written and active.';
+          setTimeout(closeOverlay, 1000);
+        } else { configStatus.textContent = '❌ Scope rejected changes.'; }
+      } catch { configStatus.textContent = '❌ Target communication exception.'; }
+    });
+
+    async function fetchJobs() {
+      if(!SESSION_USER) return;
+      try {
+        const res = await fetch(`/api/jobs?user=${SESSION_USER}`);
+        const jobs = await res.json();
+        
+        if (SESSION_ROLE === 'trial') {
+          jobLimitIndicator.textContent = `Rule Slots Active: ${jobs.length} / 3`;
+        }
+
+        if (notificationsEnabled && globalJobsCache.length > 0) {
+          jobs.forEach(job => {
+            const previous = globalJobsCache.find(j => j.id === job.id);
+            if (job.logs?.length > 0 && (!previous || previous.logs?.[0]?.timestamp !== job.logs[0].timestamp)) {
+              
+              notificationAudio.muted = false;
+              notificationAudio.play().catch(e => console.warn('[Audio Alert Runtime]', e));
+              
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(`🔔 Runtime Loop Match [${job.name}]`, { body: job.logs[0].message });
+              }
+            }
+          });
+        }
+        globalJobsCache = jobs;
+        renderJobsMatrixList(jobs);
+      } catch {}
+    }
+
+    function renderJobsMatrixList(jobs) {
+      if (jobs.length === 0) {
+        jobsContainer.innerHTML = `<div class="col-span-2 text-center py-20 text-xs font-mono text-slate-500 animate__animated animate__fadeIn">No computational threads active in current pool context.</div>`;
+        return;
+      }
+      jobsContainer.innerHTML = jobs.map(job => {
+        const isPaused = job.status === 'paused';
+        return `
+          <div class="p-5 rounded-2xl glass-card bg-slate-950/20 border ${isPaused ? 'border-dashed border-slate-800 opacity-40' : 'border-slate-800/80'} flex flex-col justify-between shadow-lg animate__animated animate__fadeIn flex-grow-0">
+            <div>
+              <div class="flex justify-between items-start gap-2 mb-3">
+                <div class="truncate">
+                  <h4 class="text-xs font-bold font-mono text-slate-200 truncate">${job.name}</h4>
+                  <span class="text-[10px] font-mono text-slate-500 block truncate mt-0.5">${job.description}</span>
+                </div>
+                <span class="text-[9px] font-mono px-2 py-0.5 rounded uppercase ${job.isOneOff ? 'bg-amber-500/10 text-amber-400' : 'bg-indigo-500/10 text-indigo-400'}">${job.isOneOff ? 'Transient' : 'Loop'}</span>
+              </div>
+              <div class="text-[10px] font-mono text-emerald-400 bg-slate-950/90 border border-slate-900 rounded-lg px-2.5 py-1.5 mb-3 flex items-center justify-between tracking-wide">
+                <span>⏱ ${job.schedule}</span>
+                <span class="text-[9px] text-slate-500">Route: ${job.deliveryMedium}</span>
+              </div>
+              <div class="bg-black/40 border border-slate-900 rounded-xl p-3 max-h-[140px] overflow-y-auto text-[11px] font-mono text-slate-300 leading-relaxed">
+                ${job.logs?.length > 0 ? job.logs.map(l => `<div class="mb-1.5"><span class="text-indigo-400 font-bold">[${l.timestamp}]</span> ${l.message}</div>`).join('') : '<span class="text-slate-600 italic">No output execution logs written yet...</span>'}
+              </div>
+            </div>
+            <div class="flex justify-between items-center pt-3 mt-4 border-t border-slate-900/60 text-[11px] font-mono">
+              <button onclick="togglePause('${job.id}')" class="${isPaused ? 'text-emerald-400' : 'text-amber-500'} hover:underline">${isPaused ? '▶ Start' : '⏸ Pause'}</button>
+              <button onclick="purgeRule('${job.id}')" class="text-rose-400 hover:underline">Purge Thread</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function togglePause(id) {
+      await fetch('/api/jobs/toggle-pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+      fetchJobs();
+    }
+
+    async function deleteJob(id) {
+      if (confirm('Permanently wipe this tracking routine entry loop?')) {
+        await fetch(`/api/jobs?id=${id}`, { method: 'DELETE' });
+        fetchJobs();
+      }
+    }
+    window.togglePause = togglePause;
+    window.purgeRule = deleteJob;
+
+    promptForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const prompt = promptInput.value.trim();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Compiling Rule Vector Matrix...';
+      statusBox.textContent = '⚙️ Analyzing token layouts via NaraRouter model maps... Evaluating structural parameters...';
+
+      try {
+        const res = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, user: SESSION_USER })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          statusBox.textContent = `✅ Automation loop compiled and bound successfully into application state vectors.\nAssigned Cron Target Identity: ${data.job.schedule}`;
+          promptInput.value = '';
+          fetchJobs();
+        } else {
+          statusBox.textContent = `❌ Rejection: ${data.error || 'Syntax exception.'}`;
+        }
+      } catch {
+        statusBox.textContent = '❌ System platform interaction timeout exception.';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Compile & Inject Rule Map';
+      }
+    });
+
+    alarmToggle.addEventListener('click', async () => {
+      notificationsEnabled = !notificationsEnabled;
+      alarmToggle.textContent = `Alarm Status: ${notificationsEnabled ? 'ON' : 'OFF'}`;
+      
+      if (notificationsEnabled) {
+        if ('Notification' in window) {
+          await Notification.requestPermission().catch(() => {});
+        }
+        try {
+          notificationAudio.play().then(() => {
+            notificationAudio.pause();
+            notificationAudio.currentTime = 0;
+          });
+        } catch (e) {
+          console.warn('[UI Prime Sync Error]', e);
+        }
+      }
+    });
+
+    checkSessionRouteState();
+    setInterval(fetchJobs, 4000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,722 @@
+import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import cron from 'node-cron';
+import dotenv from 'dotenv';
+import OpenAI from 'openai';
+import TelegramBot from 'node-telegram-bot-api';
+import nodemailer from 'nodemailer';
+
+/* ---------- setup ---------- */
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+const DATA_DIR = path.join(__dirname, '../storage');
+const DB_FILE = path.join(DATA_DIR, 'jobs.json');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const runningCronThreads = new Map();
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
+
+/* ---------- NaraRouter client ---------- */
+
+const naraKey = process.env.NARA_API_KEY;
+if (!naraKey) {
+  console.error('❌ NARA_API_KEY is not set in .env');
+}
+
+const naraClient = new OpenAI({
+  apiKey: naraKey,
+  baseURL: 'https://router.bynara.id/v1'
+});
+
+/* ---------- storage helpers ---------- */
+
+function initializeStorage() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), 'utf8');
+  if (!fs.existsSync(CONFIG_FILE)) {
+    const defaultConfig = {
+      defaultMedium: 'site',            // 'site' | 'telegram' | 'email'
+      email: '',                       // recipient email address
+      telegramBotToken: '',            // bot token from BotFather
+      telegramOwnerId: '',             // numeric Telegram user/chat ID
+      telegramAllowedIds: []           // optional allowlist of numeric IDs
+    };
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2), 'utf8');
+  }
+}
+
+function readConfig() {
+  initializeStorage();
+  return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+}
+
+function writeConfig(cfg) {
+  initializeStorage();
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+}
+
+function readJobsFromFile() {
+  initializeStorage();
+  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+}
+
+function writeJobsToFile(jobs) {
+  initializeStorage();
+  fs.writeFileSync(DB_FILE, JSON.stringify(jobs, null, 2), 'utf8');
+}
+
+/* ---------- Telegram bot setup (using config.json) ---------- */
+
+let telegramBot = null;
+
+function setupTelegramBotFromConfig() {
+  const cfg = readConfig();
+  const token = cfg.telegramBotToken || '';
+
+  if (!token) {
+    console.warn('⚠️ telegramBotToken not set in config.json; Telegram notifications disabled.');
+    return;
+  }
+
+  console.log('🤖 Initializing Telegram bot from config.json token...');
+  telegramBot = new TelegramBot(token, { polling: true });
+
+  telegramBot.onText(/\/start/, msg => {
+    const chatId = msg.chat.id;
+    telegramBot.sendMessage(chatId, 'Hello! Hermes Scheduler Telegram bot is connected.');
+  });
+
+  telegramBot.on('message', async msg => {
+    const chatId = msg.chat.id;
+    const text = msg.text || '';
+
+    if (text.startsWith('/start')) return;
+
+    console.log('[Telegram] Received:', text);
+    await telegramBot.sendMessage(chatId, `You said: ${text}`);
+  });
+}
+
+/* ---------- Email (Nodemailer) setup ---------- */
+/* SMTP creds still come from .env; recipient email from config.json */
+
+const SMTP_HOST = process.env.SMTP_HOST || '';
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+
+let mailer = null;
+
+function setupMailer() {
+  if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
+    mailer = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: {
+        user: SMTP_USER,
+        pass: SMTP_PASS
+      }
+    });
+
+    mailer
+      .verify()
+      .then(() => console.log('📧 SMTP transporter verified; email sending ready.'))
+      .catch(err => console.error('❌ SMTP verification failed:', err.message));
+  } else {
+    console.warn('⚠️ SMTP credentials not fully set; email notifications will be disabled.');
+  }
+}
+
+/* ---------- job helpers ---------- */
+/*
+  jobs.json job shape:
+
+  {
+    id: string,
+    name: string,
+    description: string,
+    task: string,
+    schedule: string,
+    isOneOff: boolean,
+    status: 'active' | 'paused',
+    logs: Array<{ timestamp, message }>,
+    channelOverride: 'site' | 'telegram' | 'email' | null,
+    deliveryMedium: 'site' | 'telegram' | 'email',           // chosen at parse time
+    deliveryTargetTelegramChatId: string | null,             // Telegram chat id (owner or specific)
+    deliveryTargetEmail: string | null                       // recipient email
+  }
+*/
+
+function normalizeJob(job) {
+  return {
+    id: String(job.id || Date.now()),
+    name: job.name || 'Untitled Job',
+    description: job.description || '',
+    task: job.task || '',
+    schedule: job.schedule || '',
+    isOneOff: !!job.isOneOff,
+    status: job.status === 'paused' ? 'paused' : 'active',
+    logs: Array.isArray(job.logs) ? job.logs : [],
+    channelOverride: job.channelOverride || null,
+
+    deliveryMedium: job.deliveryMedium || null,
+    deliveryTargetTelegramChatId: job.deliveryTargetTelegramChatId || null,
+    deliveryTargetEmail: job.deliveryTargetEmail || null
+  };
+}
+
+function isValidCron(expr) {
+  return typeof expr === 'string' && expr.trim() !== '' && cron.validate(expr);
+}
+
+function stopCronForJob(jobId) {
+  const active = runningCronThreads.get(jobId);
+  if (active?.stop) active.stop();
+  if (active?.destroy) active.destroy();
+  runningCronThreads.delete(jobId);
+}
+
+function appendExecutionLog(jobId, logText) {
+  const jobs = readJobsFromFile();
+  const index = jobs.findIndex(j => j.id === jobId);
+  if (index === -1) return;
+
+  if (!jobs[index].logs) jobs[index].logs = [];
+  jobs[index].logs.unshift({
+    timestamp: new Date().toLocaleString(),
+    message: logText
+  });
+  if (jobs[index].logs.length > 10) jobs[index].logs.pop();
+
+  writeJobsToFile(jobs);
+}
+
+function toCron6(date) {
+  return `${date.getSeconds()} ${date.getMinutes()} ${date.getHours()} ${date.getDate()} ${
+    date.getMonth() + 1
+  } *`;
+}
+
+function safeDateFromParts({ year, month, day, hour, minute, second = 0 }) {
+  if (![year, month, day, hour, minute, second].every(Number.isInteger)) return null;
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  if (hour < 0 || hour > 23) return null;
+  if (minute < 0 || minute > 59) return null;
+  if (second < 0 || second > 59) return null;
+
+  const d = new Date(year, month - 1, day, hour, minute, second, 0);
+  if (
+    d.getFullYear() !== year ||
+    d.getMonth() !== month - 1 ||
+    d.getDate() !== day ||
+    d.getHours() !== hour ||
+    d.getMinutes() !== minute ||
+    d.getSeconds() !== second
+  ) {
+    return null;
+  }
+  return d;
+}
+
+/* ---------- fallback parser (regex-only) ---------- */
+
+function fallbackParsePrompt(prompt) {
+  const text = String(prompt || '').toLowerCase();
+  const now = new Date();
+
+  const timer = text.match(
+    /\b(?:timer|set timer|set alarm|remind me)\s*(?:for|in|at|of)?\s*(\d+)\s*(second|sec|seconds|secs|minute|min|minutes|mins|hour|hr|hours|hrs)\b/
+  );
+  if (timer) {
+    const n = parseInt(timer[1], 10);
+    const unit = timer[2];
+    let target = new Date(now);
+    if (/second|sec/.test(unit)) target = new Date(now.getTime() + n * 1000);
+    else if (/minute|min/.test(unit)) target = new Date(now.getTime() + n * 60 * 1000);
+    else if (/hour|hr/.test(unit)) target = new Date(now.getTime() + n * 60 * 60 * 1000);
+    return { schedule: toCron6(target), isOneOff: true };
+  }
+
+  const timeOnly = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (timeOnly) {
+    let hour = parseInt(timeOnly[1], 10);
+    const minute = timeOnly[2] ? parseInt(timeOnly[2], 10) : 0;
+    const meridiem = timeOnly[3];
+
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+
+    const target = new Date(now);
+    target.setHours(hour, minute, 0, 0);
+    if (target <= now) target.setDate(target.getDate() + 1);
+    return { schedule: toCron6(target), isOneOff: true };
+  }
+
+  const dateTime = text.match(
+    /\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b.*?\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/
+  );
+  if (dateTime) {
+    const monthMap = {
+      jan: 1,
+      feb: 2,
+      mar: 3,
+      apr: 4,
+      may: 5,
+      jun: 6,
+      jul: 7,
+      aug: 8,
+      sep: 9,
+      oct: 10,
+      nov: 11,
+      dec: 12
+    };
+    const day = parseInt(dateTime[1], 10);
+    const month = monthMap[dateTime[2]];
+    let hour = parseInt(dateTime[3], 10);
+    const minute = dateTime[4] ? parseInt(dateTime[4], 10) : 0;
+    const meridiem = dateTime[5] ? dateTime[5].toLowerCase() : null;
+
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+
+    const year = now.getFullYear();
+    let target = safeDateFromParts({ year, month, day, hour, minute, second: 0 });
+    if (!target) return null;
+    if (target <= now) {
+      target = safeDateFromParts({ year: year + 1, month, day, hour, minute, second: 0 });
+    }
+    if (!target) return null;
+
+    return { schedule: toCron6(target), isOneOff: true };
+  }
+
+  return null;
+}
+
+/* ---------- channel override helper ---------- */
+
+function detectChannelOverride(promptText) {
+  const text = String(promptText || '').toLowerCase();
+  if (text.includes('via telegram') || text.includes('through telegram')) return 'telegram';
+  if (text.includes('via email') || text.includes('through email') || text.includes('by email'))
+    return 'email';
+  if (text.includes('via site') || text.includes('on site')) return 'site';
+  return null;
+}
+
+/* ---------- NaraRouter scheduling parser ---------- */
+
+async function naraParsePrompt(prompt) {
+  if (!naraKey) {
+    throw new Error('NARA_API_KEY not configured');
+  }
+
+  const now = new Date().toISOString();
+  console.log(`Current time for scheduling reference: ${now}`);
+
+  const system = `
+You are a scheduling parser for a Node.js app.
+
+Your main goal is to output a JSON object with this shape:
+{
+  "name": "Best name for the task",
+  "description": "Best description for the task, MUST include the user's prompt at the beginning",
+  "schedule": "cron expression string, e.g. "0 30 9 * * *" for 9:30 AM every day",
+  "isOneOff": true or false,
+  "notes": ["optional note 1", "optional note 2"]
+}
+
+Return JSON only, no markdown or explanations. If you are unsure, still return a JSON object with your best guess.
+
+Rules:
+- Use a 6-field cron format if your scheduler expects seconds:
+  second minute hour day month day-of-week
+- For recurring jobs, use wildcards/steps.
+- For one-off jobs, compute the exact future date/time and emit a 6-field cron with exact second, minute, hour, day, month, and "*" for day-of-week.
+- Handle "half an hour early", "in 5 minutes", "10 Jul 26 at 10AM" and similar expressions.
+- Never output invalid cron expressions.
+- Never omit any of the required keys.
+- Current time for reference: ${now}
+`;
+
+  const completion = await naraClient.chat.completions.create({
+    model: 'mistral-large',
+    response_format: { type: 'json_object' },
+    temperature: 0,
+    messages: [
+      { role: 'system', content: system },
+      {
+        role: 'user',
+        content: `Parse this scheduling request into the required JSON object:\n${prompt}`
+      }
+    ]
+  });
+
+  const raw = completion.choices?.[0]?.message?.content?.trim() || '';
+  console.log('NaraRouter RAW:', raw);
+
+  if (!raw) {
+    throw new Error('Empty response from NaraRouter');
+  }
+
+  let obj;
+  try {
+    obj = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`Failed to parse NaraRouter JSON: ${err.message}`);
+  }
+
+  console.log('NaraRouter OBJ:', obj);
+  return obj;
+}
+
+/* ---------- parsePrompt: main scheduling logic ---------- */
+
+async function parsePrompt(prompt, currentJob = null) {
+  const text = String(prompt || '');
+  const channelOverride = detectChannelOverride(text);
+
+  let parsed;
+  try {
+    parsed = await naraParsePrompt(text);
+  } catch (err) {
+    console.warn('⚠️ NaraRouter parser failed, falling back:', err.message);
+    parsed = fallbackParsePrompt(text) || {};
+  }
+
+  let schedule = String(parsed.schedule || '').trim();
+  let isOneOff = !!parsed.isOneOff;
+
+  if (!isValidCron(schedule)) {
+    const fallback = fallbackParsePrompt(text);
+    if (fallback && isValidCron(fallback.schedule)) {
+      schedule = fallback.schedule;
+      isOneOff = !!fallback.isOneOff;
+    }
+  }
+
+  if (!isValidCron(schedule)) {
+    const t = new Date(Date.now() + 5 * 60 * 1000);
+    schedule = toCron6(t);
+    isOneOff = true;
+  }
+
+  const cfg = readConfig();
+  const effectiveMedium = channelOverride || cfg.defaultMedium || 'site';
+
+  const result = {
+    id: String(parsed.id || Date.now()),
+    name: String(parsed.name || 'AI Automated Task').slice(0, 60),
+    description: String(
+      parsed.description || 'Automated task generated from natural-language command.'
+    ).slice(0, 140),
+    schedule,
+    isOneOff,
+    task: String(parsed.task || text),
+    confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 1.0,
+    notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+    status: 'active',
+    logs: [],
+    channelOverride,
+
+    // delivery routing stored into jobs.json
+    deliveryMedium: effectiveMedium,
+    deliveryTargetTelegramChatId: cfg.telegramOwnerId || null,
+    deliveryTargetEmail: cfg.email || null
+  };
+
+  return result;
+}
+
+/* ---------- channel notification sender ---------- */
+
+async function sendChannelNotification(job, logText) {
+  const cfg = readConfig();
+
+  const medium = job.deliveryMedium || job.channelOverride || cfg.defaultMedium || 'site';
+
+  const payloadText =
+    `${job.name}\n\n${logText}\n\nSchedule: ${job.schedule}\nOne-off: ${job.isOneOff ? 'yes' : 'no'}`;
+
+  try {
+    if (medium === 'telegram' && telegramBot) {
+      const targetChatId =
+        job.deliveryTargetTelegramChatId ||
+        cfg.telegramOwnerId ||
+        null;
+
+      if (!targetChatId) {
+        console.warn(
+          `⚠️ Telegram medium selected but no chat id/owner id configured for job ${job.id}.`
+        );
+        return;
+      }
+
+      // Optional allowlist check
+      if (Array.isArray(cfg.telegramAllowedIds) && cfg.telegramAllowedIds.length > 0) {
+        if (!cfg.telegramAllowedIds.includes(String(targetChatId))) {
+          console.warn(
+            `⚠️ Telegram chat id ${targetChatId} is not in allowedIds; skipping notification.`
+          );
+          return;
+        }
+      }
+
+      await telegramBot.sendMessage(targetChatId, payloadText);
+      console.log(`📨 [Channel] Telegram -> ${targetChatId} payload sent.`);
+    } else if (medium === 'email' && mailer && (job.deliveryTargetEmail || cfg.email)) {
+      const to = job.deliveryTargetEmail || cfg.email;
+
+      const mailOptions = {
+        from: SMTP_USER,
+        to,
+        subject: `Hermes AI Task Executed: ${job.name}`,
+        text: payloadText
+      };
+
+      await mailer.sendMail(mailOptions);
+      console.log(`📨 [Channel] Email -> ${to} payload sent.`);
+    } else {
+      console.log('📨 [Channel] Site-only notification (frontend will handle).');
+    }
+  } catch (err) {
+    console.error('❌ sendChannelNotification error:', err.message);
+  }
+}
+
+/* ---------- scheduling with node-cron ---------- */
+
+async function executeAIResearchBrain(job) {
+  try {
+    const report = `Task executed: ${job.task}`;
+    console.log(`📡 [Execution Success for Job ${job.id}]:\n${report}`);
+    appendExecutionLog(job.id, report);
+    await sendChannelNotification(job, report);
+  } catch (err) {
+    console.error(`❌ Execution failure on task [${job.id}]:`, err.message);
+    appendExecutionLog(job.id, `❌ Execution Error: ${err.message}`);
+  }
+}
+
+function activateCronForJob(job) {
+  stopCronForJob(job.id);
+
+  if (job.status === 'paused') {
+    console.log(`⏸️ Job [${job.name}] is paused. Skipping cron scheduling.`);
+    return;
+  }
+
+  if (!isValidCron(job.schedule)) {
+    console.warn(
+      `⚠️ Skipped cron scheduling for job [${job.name}]: invalid schedule "${job.schedule}"`
+    );
+    return;
+  }
+
+  console.log(`⚙️ Activating cron for [${job.name}] with pattern [${job.schedule}]`);
+
+  const task = cron.schedule(job.schedule, async fireDate => {
+    console.log(`⏰ [Cron Triggered] -> Job "${job.name}" fired at ${fireDate}`);
+    await executeAIResearchBrain(job);
+
+    if (job.isOneOff) {
+      const jobs = readJobsFromFile();
+      const index = jobs.findIndex(j => j.id === job.id);
+      if (index !== -1) {
+        jobs.splice(index, 1);
+        writeJobsToFile(jobs);
+      }
+      stopCronForJob(job.id);
+    }
+  });
+
+  runningCronThreads.set(job.id, task);
+}
+
+function bootstrapSchedules() {
+  const jobs = readJobsFromFile().map(normalizeJob);
+  writeJobsToFile(jobs);
+  jobs.forEach(job => activateCronForJob(job));
+}
+
+/* ---------- config & jobs routes ---------- */
+
+app.get('/api/config', (req, res) => {
+  try {
+    const cfg = readConfig();
+    res.json(cfg);
+  } catch (err) {
+    console.error('❌ config GET error:', err.message);
+    res.status(500).json({ error: 'Failed to load config.' });
+  }
+});
+
+app.post('/api/config', (req, res) => {
+  try {
+    const {
+      defaultMedium = 'site',
+      email = '',
+      telegramBotToken = '',
+      telegramOwnerId = '',
+      telegramAllowedIds = []
+    } = req.body;
+
+    const normalizedAllowedIds = Array.isArray(telegramAllowedIds)
+      ? telegramAllowedIds.map(id => String(id).trim()).filter(Boolean)
+      : String(telegramAllowedIds || '')
+          .split(',')
+          .map(id => id.trim())
+          .filter(Boolean);
+
+    const cfg = {
+      defaultMedium: ['site', 'telegram', 'email'].includes(defaultMedium)
+        ? defaultMedium
+        : 'site',
+      email: String(email || ''),
+      telegramBotToken: String(telegramBotToken || ''),
+      telegramOwnerId: String(telegramOwnerId || ''),
+      telegramAllowedIds: normalizedAllowedIds
+    };
+
+    writeConfig(cfg);
+
+    // Re-initialize bot when token changes
+    setupTelegramBotFromConfig();
+
+    res.json({ success: true, config: cfg });
+  } catch (err) {
+    console.error('❌ config POST error:', err.message);
+    res.status(500).json({ error: 'Failed to save config.' });
+  }
+});
+
+app.post('/api/parse-prompt', async (req, res) => {
+  const { prompt } = req.body;
+  try {
+    const obj = await parsePrompt(prompt);
+    res.json(obj);
+  } catch (err) {
+    console.error('❌ parse-prompt error:', err.message);
+    res.status(500).json({ error: 'Failed to translate scheduling intent.' });
+  }
+});
+
+app.post('/api/reparse-prompt', async (req, res) => {
+  const { prompt, currentJob } = req.body;
+  try {
+    const obj = await parsePrompt(prompt, currentJob);
+    res.json(obj);
+  } catch (err) {
+    console.error('❌ reparse-prompt error:', err.message);
+    res.status(500).json({ error: 'Failed to interpret scheduling update.' });
+  }
+});
+
+app.get('/api/jobs', (req, res) => {
+  res.json(readJobsFromFile());
+});
+
+app.post('/api/jobs', (req, res) => {
+  try {
+    const jobs = readJobsFromFile();
+    const incoming = normalizeJob(req.body);
+    const idx = jobs.findIndex(j => j.id === incoming.id);
+    const existingLogs = idx >= 0 ? jobs[idx].logs || [] : [];
+    const job = { ...incoming, logs: existingLogs };
+
+    if (!job.task) job.task = job.description || job.name;
+
+    if (!isValidCron(job.schedule)) {
+      return res.status(400).json({ error: 'Invalid cron schedule' });
+    }
+
+    if (idx >= 0) jobs[idx] = job;
+    else jobs.push(job);
+
+    writeJobsToFile(jobs);
+    activateCronForJob(job);
+
+    res.json({ success: true, job });
+  } catch (err) {
+    console.error('❌ jobs POST error:', err.message);
+    res.status(500).json({ error: 'Failed to create or update job.' });
+  }
+});
+
+app.post('/api/jobs/toggle-pause', (req, res) => {
+  const { id } = req.body;
+  const jobs = readJobsFromFile();
+  const index = jobs.findIndex(j => j.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  const currentStatus = jobs[index].status || 'active';
+  jobs[index].status = currentStatus === 'active' ? 'paused' : 'active';
+  writeJobsToFile(jobs);
+
+  activateCronForJob(jobs[index]);
+  res.json({ success: true, job: jobs[index] });
+});
+
+app.delete('/api/jobs', (req, res) => {
+  const { id } = req.query;
+  stopCronForJob(id);
+
+  let jobs = readJobsFromFile();
+  jobs = jobs.filter(job => job.id !== id);
+  writeJobsToFile(jobs);
+
+  res.json({ success: true });
+});
+
+/* ---------- bootstrap ---------- */
+
+setupMailer();
+setupTelegramBotFromConfig();
+
+app.listen(PORT, () => {
+  console.log(`🚀 Hermes AI Scheduler running on: http://localhost:${PORT}`);
+  bootstrapSchedules();
+});
+
+
+
+
+
+####################
+TELEGRAM message
+import TelegramBot from 'node-telegram-bot-api';
+
+const token = "8376058780:AAHhxoiWzpHgV_U6zDtJ3oHNB24MlcrzqfM";
+if (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN');
+
+const bot = new TelegramBot(token, { polling: true });
+
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, 'Hello! Telegram bot is connected.');
+});
+
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text || '';
+
+  if (text.startsWith('/start')) return;
+
+  console.log('Received:', text);
+  await bot.sendMessage(chatId, `You said: ${text}`);
+});
