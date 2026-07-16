@@ -9,6 +9,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import nodemailer from 'nodemailer';
 import { tavily } from '@tavily/core';
 import { MongoClient } from 'mongodb';
+import fs from 'fs'; // 🚀 Added for local JSON persistence execution paths
 
 /* ---------- setup ---------- */
 
@@ -22,34 +23,111 @@ const PORT = process.env.PORT || 5000;
 const runningCronThreads = new Map();
 const interactiveSessionStatesPool = new Map();
 
-
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
-/* ---------- MongoDB Connection Setup ---------- */
+/* ---------- Hybrid Database Layer Engine ---------- */
 
-const mongoURI = process.env.MONGO_URI;
-if (!mongoURI) {
-  console.error('❌ Fatal Environment Constraint: MONGO_URI is missing.');
-  process.exit(1);
+const isProd = process.env.ISPRODUCTION === 'production';
+const LOCAL_DB_PATH = path.resolve(__dirname, '../storage/db.json');
+
+// Initialize folder parameters if local JSON storage lane is triggered
+if (!isProd) {
+  const storageDir = path.dirname(LOCAL_DB_PATH);
+  if (!fs.existsSync(storageDir)) {
+    fs.mkdirSync(storageDir, { recursive: true });
+  }
+  if (!fs.existsSync(LOCAL_DB_PATH)) {
+    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify({ jobs: [], config: [] }, null, 2));
+  }
 }
 
-const mongoClient = new MongoClient(mongoURI);
-let db, jobsCollection, configCollection;
+// Global persistence mock object mapping
+let mongoClient = null;
+let jobsCollection = null;
+let configCollection = null;
+
+// JSON Local Fallback Mock Database Driver
+const localJsonDriver = {
+  read: () => JSON.parse(fs.readFileSync(LOCAL_DB_PATH, 'utf8')),
+  write: (data) => fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(data, null, 2)),
+  
+  createCollection: (collectionName) => ({
+    find: (query = {}) => ({
+      toArray: async () => {
+        const dbData = localJsonDriver.read();
+        let items = dbData[collectionName] || [];
+        return items.filter(item => Object.keys(query).every(key => String(item[key]) === String(query[key])));
+      }
+    }),
+    findOne: async (query = {}) => {
+      const dbData = localJsonDriver.read();
+      let items = dbData[collectionName] || [];
+      return items.find(item => Object.keys(query).every(key => String(item[key]) === String(query[key]))) || null;
+    },
+    insertOne: async (doc) => {
+      const dbData = localJsonDriver.read();
+      if (!dbData[collectionName]) dbData[collectionName] = [];
+      dbData[collectionName].push(doc);
+      localJsonDriver.write(dbData);
+      return { insertedId: doc.id || doc._id };
+    },
+    updateOne: async (query, update) => {
+      const dbData = localJsonDriver.read();
+      let items = dbData[collectionName] || [];
+      const index = items.findIndex(item => Object.keys(query).every(key => String(item[key]) === String(query[key])));
+      if (index !== -1) {
+        if (update.$set) {
+          items[index] = { ...items[index], ...update.$set };
+        } else {
+          items[index] = { ...items[index], ...update };
+        }
+        dbData[collectionName] = items;
+        localJsonDriver.write(dbData);
+      }
+      return { modifiedCount: index !== -1 ? 1 : 0 };
+    },
+    deleteOne: async (query) => {
+      const dbData = localJsonDriver.read();
+      let items = dbData[collectionName] || [];
+      const initialLength = items.length;
+      items = items.filter(item => !Object.keys(query).every(key => String(item[key]) === String(query[key])));
+      dbData[collectionName] = items;
+      localJsonDriver.write(dbData);
+      return { deletedCount: initialLength - items.length };
+    }
+  })
+};
 
 async function connectDatabase() {
-  try {
-    await mongoClient.connect();
-    db = mongoClient.db('AeonMatrix');
-    jobsCollection = db.collection('jobs');
-    configCollection = db.collection('config');
-    console.log('📦 Connected cleanly to free MongoDB MongoDB Atlas cluster layer.');
-
-    await bootstrapSchedules();
-    bootTelegramBotEngine();
-  } catch (err) {
-    console.error('❌ MongoDB Connection Failure:', err.message);
+  if (isProd) {
+    // 🌐 PRODUCTION CONFIGURATION: MongoDB Cloud Execution Routing Lane
+    const mongoURI = process.env.MONGO_URI;
+    if (!mongoURI) {
+      console.error('❌ Fatal Environment Constraint: MONGO_URI is missing in production scope.');
+      process.exit(1);
+    }
+    try {
+      mongoClient = new MongoClient(mongoURI);
+      await mongoClient.connect();
+      const db = mongoClient.db('AeonMatrix');
+      jobsCollection = db.collection('jobs');
+      configCollection = db.collection('config');
+      console.log('📦 Connected cleanly to free MongoDB MongoDB Atlas cluster layer.');
+    } catch (err) {
+      console.error('❌ MongoDB Connection Failure:', err.message);
+      process.exit(1);
+    }
+  } else {
+    // 💻 DEVELOPMENT CONFIGURATION: Standalone Local file persistence execution routing lane
+    jobsCollection = localJsonDriver.createCollection('jobs');
+    configCollection = localJsonDriver.createCollection('config');
+    console.log('📝 Development Environment Detected. Persistent Layer Bound to storage/db.json');
   }
+
+  // Common boot chain processing loops
+  await bootstrapSchedules();
+  bootTelegramBotEngine();
 }
 
 /* ---------- Crypto Helpers (AES-256-GCM) ---------- */
@@ -94,6 +172,8 @@ const USER_DATABASE = {
 
 /* ---------- NaraRouter client ---------- */
 
+/* ---------- NaraRouter client ---------- */
+
 const naraKey = process.env.NARA_API_KEY;
 if (!naraKey) {
   console.error('❌ NARA_API_KEY is not set in .env');
@@ -102,7 +182,7 @@ if (!naraKey) {
 const naraClient = new OpenAI({
   apiKey: naraKey && naraKey.trim() !== "" ? naraKey : "MISSING_ENV_KEY_FALLBACK",
   baseURL: 'https://router.bynara.id/v1',
-  timeout: 30000,
+  timeout: 60000, // 🚀 INCREASED TO 60 SECONDS to allow heavy web research parsing room to breathe
   maxRetries: 2
 });
 
@@ -165,21 +245,16 @@ async function bootTelegramBotEngine() {
         retryTimeout: 10000
       });
 
-      // FIXED: Lowercase method name
       await telegramBot.deleteWebhook();
 
-      if (process.env.NODE_ENV === 'production') {
         await telegramBot.startPolling();
         console.log('📡 Telegram Bot Matrix Link Connected and Active (Production Mode).');
-      } else {
-        console.log('⚠️ Telegram Bot Long-Polling Suppressed: Local Development Mode is Active.');
-      }
 
       telegramBot.setMyCommands([
         { command: 'start', description: 'Initialize the Hermes connection node' },
         { command: 'help', description: 'Show comprehensive command operational guide' },
         { command: 'status', description: 'Fetch system matrix current metrics' },
-        { command: 'update', description: 'Modify background orchestration threads via UI panels' },
+        { command: 'update', description: 'Modify active loops via interactive selection panels' },
         { command: 'resume', description: 'Preview active stored CV profile text' }
       ]).catch(err => console.error('⚠️ Failed to register command list UI hints:', err.message));
 
@@ -212,6 +287,7 @@ async function bootTelegramBotEngine() {
         telegramBot.sendMessage(msg.chat.id, profileContent, { parse_mode: 'Markdown' });
       });
 
+      // 🌐 DYNAMIC SELECTION PANELS ENGINE (/update)
       telegramBot.onText(/\/update/, async (msg) => {
         try {
           interactiveSessionStatesPool.delete(msg.chat.id);
@@ -235,6 +311,7 @@ async function bootTelegramBotEngine() {
         }
       });
 
+      // 🧠 STEP 2: Strict Callback Operations Panel (Deterministic Actions)
       telegramBot.on('callback_query', async (callbackQuery) => {
         const chatId = callbackQuery.message.chat.id;
         const messageId = callbackQuery.message.message_id;
@@ -291,8 +368,9 @@ async function bootTelegramBotEngine() {
                 activateCronForJob(freshJobState);
               }
 
+              // 🚀 FIXED: Delete the configuration menu panel first to clear out layout space, preventing 'message to edit not found' loops
+              await telegramBot.deleteMessage(chatId, messageId).catch(() => { });
               await telegramBot.sendMessage(chatId, `⚙️ *AeonMatrix Database Sync Matrix Complete*\n\n• *Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Update Action:* Status Mutated\n• *New State:* \`${adjustedStatus.toUpperCase()}\``, { parse_mode: 'Markdown' });
-              telegramBot.deleteMessage(chatId, messageId).catch(() => { });
             }
           }
 
@@ -303,8 +381,10 @@ async function bootTelegramBotEngine() {
             if (targetJob) {
               stopCronForJob(jobId);
               await jobsCollection.deleteOne({ id: jobId });
+              
+              // 🚀 FIXED: Delete the interface menu panel before dispatching the text confirmation, preventing racing state edits
+              await telegramBot.deleteMessage(chatId, messageId).catch(() => { });
               await telegramBot.sendMessage(chatId, `🗑 *Thread Purged Cleanly*\n\n• *Wiped Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Database State:* Document records removed.`, { parse_mode: 'Markdown' });
-              telegramBot.deleteMessage(chatId, messageId).catch(() => { });
             }
           }
 
@@ -312,12 +392,13 @@ async function bootTelegramBotEngine() {
             const jobId = payloadData.split(':')[1];
             interactiveSessionStatesPool.set(chatId, { step: 'AWAITING_CRON_STRING', targetJobId: jobId });
 
+            // 🚀 FIXED: Safely wipe the menu item before asking for the next direct prompt string string layout pass
+            await telegramBot.deleteMessage(chatId, messageId).catch(() => { });
             await telegramBot.sendMessage(chatId, '⏱ *Provide New Precise Schedule Configuration Vector:*\n\nSend your new raw timing or relative parameters string layout as a direct text reply (e.g. `every 10 minutes`, `0 30 9 * * *`, `remind me in 2 hours`).', { parse_mode: 'Markdown' });
-            telegramBot.deleteMessage(chatId, messageId).catch(() => { });
           }
 
           else if (payloadData === 'nav_back_main') {
-            telegramBot.deleteMessage(chatId, messageId).catch(() => { });
+            await telegramBot.deleteMessage(chatId, messageId).catch(() => { });
             const rawJobs = await jobsCollection.find({ owner: "admin" }).toArray();
             const inlineKeyboardButtons = rawJobs.map(job => [{
               text: `⚙️ ${job.name.slice(0, 32)} [${job.status.toUpperCase()}]`,
@@ -333,12 +414,14 @@ async function bootTelegramBotEngine() {
         }
       });
 
+      // 💬 STEP 3: Pure State Text Processing + Clean Cognitive Chat Routing
       telegramBot.on('message', async (msg) => {
         const text = msg.text || '';
         const chatId = msg.chat.id;
 
         if (text.startsWith('/start') || text.startsWith('/help') || text.startsWith('/status') || text.startsWith('/resume') || text.startsWith('/update')) return;
 
+        // Secure State Catch: Explicitly catches targeted schedule text edits, bypassing the LLM completely
         if (interactiveSessionStatesPool.has(chatId)) {
           const contextState = interactiveSessionStatesPool.get(chatId);
 
@@ -371,6 +454,7 @@ async function bootTelegramBotEngine() {
           }
         }
 
+        // Standard Prompt Construction Logic
         const currentCfg = await getSystemConfig();
 
         if (text.startsWith('/prompt ')) {
@@ -406,6 +490,7 @@ async function bootTelegramBotEngine() {
             await telegramBot.sendMessage(msg.chat.id, warningMsg, { parse_mode: 'Markdown' });
           }
         } else {
+          // Pure AI Conversation Pass
           telegramBot.sendChatAction(msg.chat.id, 'typing');
           try {
             const rawJobs = await jobsCollection.find({ owner: "admin" }).toArray();
@@ -453,7 +538,7 @@ ${currentCfg.userResume || 'No user resume profile uploaded.'}`;
           }
         }
       });
-    } // 🚀 FIXED: Closed the 'if (rawToken && rawToken.trim() !== "")' block cleanly here.
+    }
   } catch (err) {
     console.error('⚠️ Telegram initialization exception caught:', err.message);
   } finally {
@@ -636,10 +721,11 @@ async function appendExecutionLog(jobId, logText) {
   }
 }
 
+// 🚀 HARDENED: Absolute String Chunking Matrix to guarantee flawless Telegram Delivery Pass under 4096 bounds
 async function sendChannelNotification(job, logText) {
   const cfg = await getSystemConfig();
   const medium = job.deliveryMedium || cfg.defaultMedium || 'site';
-  const payloadText = `🤖 [Hermes Matrix Execution Report]\n\nPipeline Run: ${job.name}\n\nOutput Log:\n${logText}`;
+  const fullPayloadText = `🤖 [Hermes Matrix Execution Report]\n\nPipeline Run: ${job.name}\n\nOutput Log:\n${logText}`;
 
   try {
     if (medium === 'telegram') {
@@ -648,10 +734,28 @@ async function sendChannelNotification(job, logText) {
         const targetChatId = job.deliveryTargetTelegramChatId || plainOwnerId;
 
         if (targetChatId) {
-          try {
-            await telegramBot.sendMessage(targetChatId, payloadText, { parse_mode: 'Markdown' });
-          } catch {
-            await telegramBot.sendMessage(targetChatId, payloadText.replace(/[\*\_`#\-]/g, ''));
+          const SEGMENT_THRESHOLD_CAP = 3800; 
+          
+          if (fullPayloadText.length > SEGMENT_THRESHOLD_CAP) {
+            console.log(`📦 Large chunk string discovered (${fullPayloadText.length} characters). Slicing array tokens...`);
+            let chunkBuffer = fullPayloadText;
+            
+            while (chunkBuffer.length > 0) {
+              const segment = chunkBuffer.slice(0, SEGMENT_THRESHOLD_CAP);
+              chunkBuffer = chunkBuffer.slice(SEGMENT_THRESHOLD_CAP);
+              
+              try {
+                await telegramBot.sendMessage(targetChatId, segment, { parse_mode: 'Markdown' });
+              } catch {
+                await telegramBot.sendMessage(targetChatId, segment.replace(/[\*\_`#\-]/g, ''));
+              }
+            }
+          } else {
+            try {
+              await telegramBot.sendMessage(targetChatId, fullPayloadText, { parse_mode: 'Markdown' });
+            } catch {
+              await telegramBot.sendMessage(targetChatId, fullPayloadText.replace(/[\*\_`#\-]/g, ''));
+            }
           }
         }
       }
@@ -660,13 +764,15 @@ async function sendChannelNotification(job, logText) {
     if (medium === 'email' && mailer) {
       const toAddress = job.deliveryTargetEmail || cfg.email;
       if (toAddress) {
-        await mailer.sendMail({ from: SMTP_USER, to: toAddress, subject: `Hermes AI Alert: ${job.name}`, text: payloadText });
+        await mailer.sendMail({ from: SMTP_USER, to: toAddress, subject: `Hermes AI Alert: ${job.name}`, text: fullPayloadText });
       }
     }
   } catch (err) {
     console.error('❌ System notification pipeline failure:', err.message);
   }
 }
+
+/* ---------- Core Execution Engine Fix ---------- */
 
 async function executeAIResearchBrain(job) {
   try {
@@ -684,20 +790,32 @@ async function executeAIResearchBrain(job) {
       return;
     }
 
-    let analysisContext = "";
+let analysisContext = "";
     const demandsWebAccess = ['search', 'find', 'jobs', 'latest', 'top 10', 'market', 'food', 'place', 'company', 'website', 'near', 'list', 'facts'].some(k => contextEvaluator.includes(k));
 
     if (demandsWebAccess && tvly) {
-      await appendExecutionLog(job.id, "🔍 Initiating live Tavily API high-precision web search...");
+      // 🚀 FIXED: If the prompt asks for a local landmark, ensure it strictly appends the home city context
+      let optimizedSearchQuery = job.task;
+      if (contextEvaluator.includes('chowk') || contextEvaluator.includes('ghatlodiya') || contextEvaluator.includes('near')) {
+        optimizedSearchQuery = `${job.task} Ahmedabad Gujarat India`;
+      }
+
+      await appendExecutionLog(job.id, `🔍 Initiating localized live Tavily web search for: "${optimizedSearchQuery}"...`);
+      
       try {
-        const searchResults = await tvly.search(job.task, { searchDepth: "advanced", maxResults: 6 });
+        const tavilySearchPromise = tvly.search(optimizedSearchQuery, { searchDepth: "advanced", maxResults: 5 });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Tavily search endpoint timeout")), 25000));
+        
+        const searchResults = await Promise.race([tavilySearchPromise, timeoutPromise]);
         analysisContext = JSON.stringify(searchResults.results);
+        await appendExecutionLog(job.id, "✅ Local live web crawl data gathered successfully.");
       } catch (err) {
-        await appendExecutionLog(job.id, "⚠️ Web Crawler search engine encountered a timeout exception.");
+        console.warn("⚠️ Tavily research timed out or failed:", err.message);
+        await appendExecutionLog(job.id, "⚠️ Web Crawler search engine hit a timeout. Relying on fallback parameters...");
       }
     }
 
-    await appendExecutionLog(job.id, "🧠 Synthesizing crawled parameters inside cognitive layer...");
+    await appendExecutionLog(job.id, "🧠 Synthesizing parameters inside cognitive layer...");
 
     const systemInstruction = `You are a precise data synthesis engine of the AeonMatrix cloud framework.
 Current Reference Time: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}.
@@ -708,7 +826,7 @@ STRICT INSTRUCTION PROTOCOLS:
 3. MAP LINK STANDARD: Never output hallucinated map links. Use this syntax: https://www.google.com/maps/search/?api=1&query=urlencoded_query_string
 
 [LIVE CRAWLED DATA ENVIRONMENT]:
-${analysisContext || "No background internet data chunk provided. Rely completely on literal structural parameters."}`;
+${analysisContext || "No background internet data chunk provided. Rely completely on literal internal parametric metrics near Ahmedabad/Ghatlodiya parameters."}`;
 
     const modelCall = await naraClient.chat.completions.create({
       model: 'mistral-large',

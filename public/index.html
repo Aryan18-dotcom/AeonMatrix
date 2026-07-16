@@ -287,6 +287,9 @@
     let globalJobsCache = [];
 
     let notifiedJobIdsPool = new Set();
+    // 🚀 FIXED SCAPPING MATRIX: Pools user-initiated manual purges to filter out drop chimes
+    let ignoredJobIdsPool = new Set(); 
+
     const notificationAudio = new Audio('/sound_way.mp3');
 
     const authGate = document.getElementById('authGate');
@@ -467,15 +470,16 @@
         }
 
         if (notificationsEnabled && globalJobsCache.length > 0) {
-          // Iterate over cache tracking points to detect deletion parameters accurately
           globalJobsCache.forEach(previous => {
+            if (notifiedJobIdsPool.has(previous.id)) return;
+
+            // 🚀 FIXED: Skip processing entirely if the user purposefully initiated a purge action
+            if (ignoredJobIdsPool.has(previous.id)) return;
+
             const currentJob = jobs.find(j => j.id === previous.id);
             let clearTriggerDetected = false;
             let triggerTarget = previous;
             let alertBodyText = previous.description || previous.task || "Timer execution loop complete.";
-
-            // 🛑 ABSOLUTE DUPLICATE PROTECTION: Bypasses calculation loops if job has already fired a signal
-            if (notifiedJobIdsPool.has(previous.id)) return;
 
             // Scenario A: The job ran, completed, and was cleared from the database array entirely
             if (!currentJob) {
@@ -494,19 +498,14 @@
                 console.log(`[🔔 NOTIFICATION MATRIX] Caught explicit log state change payload: ${currentJob.name}`);
                 clearTriggerDetected = true;
                 triggerTarget = currentJob;
-                // Safely extract the literal execution output string text
                 alertBodyText = currentJob.logs[0].message || currentJob.description;
               }
             }
 
             if (clearTriggerDetected) {
-              // Mark job ID instantly to ensure it can never trigger a double-sound notification block
               notifiedJobIdsPool.add(previous.id);
-              
-              // Maintain memory management by cleaning up tracking maps systematically
               setTimeout(() => notifiedJobIdsPool.delete(previous.id), 30000);
 
-              // Reset and ready the notification audio track stably
               notificationAudio.muted = false;
               notificationAudio.currentTime = 0;
 
@@ -517,21 +516,18 @@
                 }
               };
 
-              // Trigger native system OS notification engine context interface
               if ('Notification' in window && Notification.permission === 'granted') {
-                // Strip raw markdown formatting tokens from rendering directly inside system UI notifications
                 const cleanBodyText = alertBodyText.replace(/[\*\_`#\-]/g, '');
                 
                 const notification = new Notification(`🔔 AeonMatrix: ${triggerTarget.name}`, {
                   body: cleanBodyText,
                   icon: '/favicon.ico',
-                  tag: triggerTarget.id, // Enforces exact unique identification parameters
+                  tag: triggerTarget.id,
                   requireInteraction: false
                 });
 
                 notification.onshow = playAudio;
               } else {
-                // Fallback standard text loop execute path if window handles have direct interface focus
                 playAudio();
               }
             }
@@ -586,8 +582,14 @@
 
     async function deleteJob(id) {
       if (confirm('Permanently wipe this tracking routine entry loop?')) {
+        // 🚀 FIXED: Trap the manual deletion id inside our filter pool instantly
+        ignoredJobIdsPool.add(String(id));
+        
         await fetch(`/api/jobs?id=${id}`, { method: 'DELETE' });
         fetchJobs();
+        
+        // Lazy memory collection cleanup routine
+        setTimeout(() => ignoredJobIdsPool.delete(String(id)), 10000);
       }
     }
     window.togglePause = togglePause;
@@ -595,10 +597,9 @@
 
     // Automatically submit prompt on Enter key layout passes
     promptInput.addEventListener('keydown', e => {
-      // Catch 'Enter' key hits strictly while preventing intercept blocks on 'Shift + Enter' splits
       if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault(); // Stop the default textarea raw new-line trailing insertion
-        promptForm.requestSubmit(); // Safely trigger the validation routines on the parent form plane
+        e.preventDefault();
+        promptForm.requestSubmit();
       }
     });
 
