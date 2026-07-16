@@ -38,7 +38,7 @@ let db, jobsCollection, configCollection;
 async function connectDatabase() {
   try {
     await mongoClient.connect();
-    db = mongoClient.db('AeonMatrix'); 
+    db = mongoClient.db('AeonMatrix');
     jobsCollection = db.collection('jobs');
     configCollection = db.collection('config');
     console.log('📦 Connected cleanly to free MongoDB MongoDB Atlas cluster layer.');
@@ -100,8 +100,8 @@ if (!naraKey) {
 const naraClient = new OpenAI({
   apiKey: naraKey && naraKey.trim() !== "" ? naraKey : "MISSING_ENV_KEY_FALLBACK",
   baseURL: 'https://router.bynara.id/v1',
-  timeout: 30000,   
-  maxRetries: 2     
+  timeout: 30000,
+  maxRetries: 2
 });
 
 /* ---------- Tavily Client ---------- */
@@ -146,7 +146,7 @@ function escapeMarkdown(text) {
 /* ---------- Telegram bot setup ---------- */
 
 let telegramBot = null;
-let isBotBooting = false; 
+let isBotBooting = false;
 
 async function bootTelegramBotEngine() {
   if (isBotBooting) return;
@@ -166,10 +166,15 @@ async function bootTelegramBotEngine() {
 
   if (rawToken && rawToken.trim() !== "") {
     try {
-      telegramBot = new TelegramBot(rawToken, { polling: { autoStart: false } });
-      await telegramBot.deleteWebhook(); 
+      telegramBot = new TelegramBot(rawToken, {
+        polling: { autoStart: false }, params: {
+          timeout: 30
+        },
+        retryTimeout: 10000
+      });
+      await telegramBot.deleteWebhook();
       await telegramBot.startPolling();
-      
+
       console.log('📡 Telegram Bot Matrix Link Connected and Active.');
 
       telegramBot.setMyCommands([
@@ -216,13 +221,13 @@ async function bootTelegramBotEngine() {
 
         if (text.startsWith('/prompt ')) {
           const promptPayload = text.replace('/prompt ', '').trim();
-          
+
           if (!promptPayload) {
             return telegramBot.sendMessage(msg.chat.id, '⚠️ *Operator Intercept:* Prompt payload cannot be blank. Provide a valid natural language instruction.', { parse_mode: 'Markdown' });
           }
 
-          const looksConversational = /^(tell me|write|explain|who is|what is|give me information)/i.test(promptPayload) && 
-                                     !/\b(every|each|at|cron|minute|hour|day|timer|after|in|pm|am)\b/i.test(promptPayload);
+          const looksConversational = /^(tell me|write|explain|who is|what is|give me information)/i.test(promptPayload) &&
+            !/\b(every|each|at|cron|minute|hour|day|timer|after|in|pm|am)\b/i.test(promptPayload);
 
           if (looksConversational) {
             const warningMsg = `⚠️ *Hermes Parameter Rejection*\n\n*Reason:* Input detected as a direct conversational statement rather than a scheduling rule mapping.\n\n💡 _Tip: Remove the \`/prompt\` prefix to chat directly with the node._`;
@@ -259,11 +264,11 @@ async function bootTelegramBotEngine() {
               task: j.task
             }));
 
-            const requestsMutation = /\b(change|update|modify|alter|edit|pause|stop|resume|start|delete|purge)\b/i.test(text) && 
-                                    /\b(cron|time|schedule|loop|job|pipeline|pool)\b/i.test(text);
+            const requestsMutation = /\b(change|update|modify|alter|edit|pause|stop|resume|start|delete|purge)\b/i.test(text) &&
+              /\b(cron|time|schedule|loop|job|pipeline|pool)\b/i.test(text);
 
             if (requestsMutation) {
-const mutationSystemInstruction = `You are the core database mutation parser of AeonMatrix.
+              const mutationSystemInstruction = `You are the core database mutation parser of AeonMatrix.
 Current Baseline Reference Time: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'medium' })}.
 
 Your job is to read the user's update request, cross-reference it against the [ACTIVE JOBS POOL], and return a strict JSON action output map matching this scheme perfectly:
@@ -289,41 +294,41 @@ ${JSON.stringify(compactJobsMatrix, null, 2)}`;
 
               const mutationResult = JSON.parse(mutationCall.choices?.[0]?.message?.content || '{}');
 
-if (mutationResult.action && mutationResult.action !== 'none' && mutationResult.targetJobId) {
+              if (mutationResult.action && mutationResult.action !== 'none' && mutationResult.targetJobId) {
                 const targetJob = await jobsCollection.findOne({ id: mutationResult.targetJobId });
                 if (targetJob) {
                   if (mutationResult.action === 'update_schedule' && mutationResult.newCronSchedule) {
                     await jobsCollection.updateOne({ id: targetJob.id }, { $set: { schedule: mutationResult.newCronSchedule } });
                     const updated = await jobsCollection.findOne({ id: targetJob.id });
                     activateCronForJob(updated);
-                    
+
                     const updateConfirmation = `⚙️ *AeonMatrix Database Sync Matrix Complete*\n\n• *Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Update Action:* Schedule Shifted\n• *New Target Cron Map:* \`${mutationResult.newCronSchedule}\`\n• *Status:* Dynamic Loop Recalibrated Live.`;
-                    
+
                     try {
                       return await telegramBot.sendMessage(msg.chat.id, updateConfirmation, { parse_mode: 'Markdown' });
                     } catch {
                       return await telegramBot.sendMessage(msg.chat.id, updateConfirmation.replace(/[\*\_`#\-]/g, ''));
                     }
-                  } 
+                  }
                   else if (mutationResult.action === 'pause_job') {
                     await jobsCollection.updateOne({ id: targetJob.id }, { $set: { status: 'paused' } });
                     stopCronForJob(targetJob.id);
-                    
+
                     const pauseConfirmation = `⏸ *Pipeline Block Paused Successfully*\n\n• *Thread Name:* ${escapeMarkdown(targetJob.name)}\n• *State:* Halted in Thread PoolRegistry.`;
-                    
+
                     try {
                       return await telegramBot.sendMessage(msg.chat.id, pauseConfirmation, { parse_mode: 'Markdown' });
                     } catch {
                       return await telegramBot.sendMessage(msg.chat.id, pauseConfirmation.replace(/[\*\_`#\-]/g, ''));
                     }
-                  } 
+                  }
                   else if (mutationResult.action === 'resume_job') {
                     await jobsCollection.updateOne({ id: targetJob.id }, { $set: { status: 'active' } });
                     const updated = await jobsCollection.findOne({ id: targetJob.id });
                     activateCronForJob(updated);
-                    
+
                     const resumeConfirmation = `▶ *Pipeline Vector Re-Activated*\n\n• *Thread Name:* ${escapeMarkdown(targetJob.name)}\n• *State:* Active standard looping thread synced.`;
-                    
+
                     try {
                       return await telegramBot.sendMessage(msg.chat.id, resumeConfirmation, { parse_mode: 'Markdown' });
                     } catch {
@@ -333,9 +338,9 @@ if (mutationResult.action && mutationResult.action !== 'none' && mutationResult.
                   else if (mutationResult.action === 'delete_job') {
                     stopCronForJob(targetJob.id);
                     await jobsCollection.deleteOne({ id: targetJob.id });
-                    
+
                     const deleteConfirmation = `🗑 *Thread Purged Cleanly*\n\n• *Wiped Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Database State:* Document records removed.`;
-                    
+
                     try {
                       return await telegramBot.sendMessage(msg.chat.id, deleteConfirmation, { parse_mode: 'Markdown' });
                     } catch {
@@ -362,7 +367,7 @@ ${currentCfg.userResume || 'No user resume profile uploaded.'}`;
 
             const responseCall = await naraClient.chat.completions.create({
               model: 'mistral-large',
-              temperature: 0.4, 
+              temperature: 0.4,
               messages: [{ role: 'system', content: systemInstruction }, { role: 'user', content: text }]
             });
 
@@ -468,7 +473,7 @@ async function naraParsePrompt(prompt) {
   if (!naraKey) throw new Error('NARA_API_KEY not configured');
 
   const now = new Date();
-  
+
   const temporalContext = {
     current_time: now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', timeStyle: 'short' }),
     current_date: now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', dateStyle: 'medium' }),
@@ -602,10 +607,10 @@ async function sendChannelNotification(job, logText) {
 async function executeAIResearchBrain(job) {
   try {
     const contextEvaluator = job.task.toLowerCase();
-    
-    const isSimpleReminder = job.name.toLowerCase().includes('reminder') || 
-                             job.name.toLowerCase().includes('pipeline loop') ||
-                             /\b(timer|remind|alert|wake me up|meeting tomorrow|appointment|meating)\b/.test(contextEvaluator);
+
+    const isSimpleReminder = job.name.toLowerCase().includes('reminder') ||
+      job.name.toLowerCase().includes('pipeline loop') ||
+      /\b(timer|remind|alert|wake me up|meeting tomorrow|appointment|meating)\b/.test(contextEvaluator);
 
     if (isSimpleReminder) {
       const cleanTaskText = job.task.replace(/^(after \d+\s*\w+\s*|reminder\s*|tomorrow\s*)/i, '');
@@ -623,8 +628,8 @@ async function executeAIResearchBrain(job) {
       try {
         const searchResults = await tvly.search(job.task, { searchDepth: "advanced", maxResults: 6 });
         analysisContext = JSON.stringify(searchResults.results);
-      } catch (err) { 
-        await appendExecutionLog(job.id, "⚠️ Web Crawler search engine encountered a timeout exception."); 
+      } catch (err) {
+        await appendExecutionLog(job.id, "⚠️ Web Crawler search engine encountered a timeout exception.");
       }
     }
 
@@ -643,7 +648,7 @@ ${analysisContext || "No background internet data chunk provided. Rely completel
 
     const modelCall = await naraClient.chat.completions.create({
       model: 'mistral-large',
-      temperature: 0.1, 
+      temperature: 0.1,
       messages: [
         { role: 'system', content: systemInstruction },
         { role: 'user', content: `${job.task} (Compile the complete, well-structured response report matching the task directives).` }
@@ -663,25 +668,70 @@ ${analysisContext || "No background internet data chunk provided. Rely completel
 
 function activateCronForJob(job) {
   stopCronForJob(job.id);
-  if (job.status === 'paused' || !isValidCron(job.schedule)) return;
+  if (job.status === 'paused') {
+    return;
+  }
 
-  const task = cron.schedule(job.schedule, async () => {
-    executeAIResearchBrain(job).catch(err => {
-      console.error(`❌ Non-blocking execution catch on node [${job.id}]:`, err.message);
+  // 1. Intercept Short-Lived One-Off Timers under 3 minutes
+  const textCheck = String(job.task).toLowerCase();
+  const isShortTimer = job.isOneOff && 
+                       (/\b(\d+)\s*(s|sec|second|m|min|minute)s?\b/.test(textCheck) || 
+                        job.description.toLowerCase().includes("seconds from now") || 
+                        job.description.toLowerCase().includes("in "));
+
+  if (isShortTimer) {
+    const match = textCheck.match(/\b(\d+)\s*(s|sec|second|m|min|minute)s?\b/);
+    let delayMs = 20000; // Default fallback to 20 seconds
+
+    if (match) {
+      const value = parseInt(match[1], 10);
+      const unit = match[2];
+      delayMs = unit.startsWith('m') ? value * 60 * 1000 : value * 1000;
+    }
+
+    const shortTask = setTimeout(async () => {
+      try {
+        await executeAIResearchBrain(job);
+        await jobsCollection.deleteOne({ id: job.id });
+      } catch (err) {
+        console.error(`[❌ CRON DEBUGLOG ERROR] Isolated memory timer catch on Job [${job.id}]:`, err.message);
+      }
+    }, delayMs);
+
+    runningCronThreads.set(job.id, { stop: () => clearTimeout(shortTask), destroy: () => clearTimeout(shortTask) });
+    return;
+  }
+
+  // 2. Validate Cron Expression String for standard long runs
+  if (!isValidCron(job.schedule)) {
+    return;
+  }
+
+  // 3. Persistent Long-Running node-cron Schedules
+  try {
+    const task = cron.schedule(job.schedule, async () => {
+      executeAIResearchBrain(job)
+        .catch(err => {
+          console.error(`[❌ CRON DEBUGLOG ERROR] executeAIResearchBrain processing exception on node [${job.id}]:`, err.message);
+        });
+
+      if (job.isOneOff) {
+        setTimeout(async () => {
+          try {
+            await jobsCollection.deleteOne({ id: job.id });
+            stopCronForJob(job.id);
+          } catch (e) {
+            console.error(`[❌ CRON DEBUGLOG ERROR] Failed to clean up one-off database artifact [${job.id}]:`, e.message);
+          }
+        }, 5000);
+      }
     });
 
-    if (job.isOneOff) {
-      setTimeout(async () => {
-        try {
-          await jobsCollection.deleteOne({ id: job.id });
-          stopCronForJob(job.id);
-        } catch (e) {
-          console.error('❌ Failed to clear transient entry:', e.message);
-        }
-      }, 5000);
-    }
-  });
-  runningCronThreads.set(job.id, task);
+    runningCronThreads.set(job.id, task);
+    console.log(`[🎯 CRON DEBUGLOG] Job [${job.id}] successfully mounted to scheduler stack. Current thread pool size: ${runningCronThreads.size}`);
+  } catch (schedErr) {
+    console.error(`[❌ CRON DEBUGLOG CRITICAL ERROR] Failed to inject job configuration into node-cron core framework for job [${job.id}]:`, schedErr.message);
+  }
 }
 
 async function bootstrapSchedules() {
