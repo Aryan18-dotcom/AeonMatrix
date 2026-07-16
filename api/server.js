@@ -20,6 +20,8 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const app = express();
 const PORT = process.env.PORT || 5000;
 const runningCronThreads = new Map();
+const interactiveSessionStatesPool = new Map();
+
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
@@ -149,47 +151,44 @@ let telegramBot = null;
 let isBotBooting = false;
 
 async function bootTelegramBotEngine() {
-  if (isBotBooting) return;
+  if (isBotBooting || telegramBot) return;
   isBotBooting = true;
 
-  if (telegramBot) {
-    try {
-      await telegramBot.stopPolling();
-      telegramBot = null;
-    } catch (e) {
-      console.error('❌ Error stopping bot polling gracefully:', e.message);
-    }
-  }
+  try {
+    const cfg = await getSystemConfig();
+    const rawToken = cfg.encryptedTelegramBotToken ? decrypt(cfg.encryptedTelegramBotToken) : '';
 
-  const cfg = await getSystemConfig();
-  const rawToken = cfg.encryptedTelegramBotToken ? decrypt(cfg.encryptedTelegramBotToken) : '';
-
-  if (rawToken && rawToken.trim() !== "") {
-    try {
+    if (rawToken && rawToken.trim() !== "") {
       telegramBot = new TelegramBot(rawToken, {
-        polling: { autoStart: false }, params: {
-          timeout: 30
-        },
+        polling: { autoStart: false },
+        params: { timeout: 30 },
         retryTimeout: 10000
       });
-      await telegramBot.deleteWebhook();
-      await telegramBot.startPolling();
 
-      console.log('📡 Telegram Bot Matrix Link Connected and Active.');
+      // FIXED: Lowercase method name
+      await telegramBot.deleteWebhook();
+
+      if (process.env.NODE_ENV === 'production') {
+        await telegramBot.startPolling();
+        console.log('📡 Telegram Bot Matrix Link Connected and Active (Production Mode).');
+      } else {
+        console.log('⚠️ Telegram Bot Long-Polling Suppressed: Local Development Mode is Active.');
+      }
 
       telegramBot.setMyCommands([
         { command: 'start', description: 'Initialize the Hermes connection node' },
         { command: 'help', description: 'Show comprehensive command operational guide' },
         { command: 'status', description: 'Fetch system matrix current metrics' },
+        { command: 'update', description: 'Modify background orchestration threads via UI panels' },
         { command: 'resume', description: 'Preview active stored CV profile text' }
       ]).catch(err => console.error('⚠️ Failed to register command list UI hints:', err.message));
 
       telegramBot.onText(/\/start/, msg => {
-        telegramBot.sendMessage(msg.chat.id, '🛡️ *AeonMatrix Active Node Linked.*\n\nUse `/prompt <command>` to inject continuous automation maps dynamically, or type anything casually to chat with the engine.', { parse_mode: 'Markdown' });
+        telegramBot.sendMessage(msg.chat.id, '🛡️ *AeonMatrix Active Node Linked.*\n\nUse `/prompt <command>` to inject continuous automation maps dynamically, or use `/update` to manage your active jobs pool via interactive menus.', { parse_mode: 'Markdown' });
       });
 
       telegramBot.onText(/\/help/, msg => {
-        const helpMessage = `📖 *AeonMatrix Operator Guide*\n\n🤖 *Core Execution Engines:*\n• \`/prompt <instruction>\` — Compiles a natural language request into a 6-field cron thread array loop.\n• _Plain Text_ — Chat directly with the cognitive brain node.\n\n🛠️ *System Status Arrays:*\n• \`/status\` — Reviews active background orchestration pools.\n• \`/resume\` — Inspects the currently cached vector layout file content.`;
+        const helpMessage = `📖 *AeonMatrix Operator Guide*\n\n🤖 *Core Execution Engines:*\n• \`/prompt <instruction>\` — Compiles a natural language request into a cron thread.\n• \`/update\` — Opens a secure inline structural UI button configuration map.\n• _Plain Text_ — Chat directly with the cognitive brain node.\n\n🛠️ *System Status Arrays:*\n• \`/status\` — Reviews active background orchestration pools.\n• \`/resume\` — Inspects the currently cached vector profile content.`;
         telegramBot.sendMessage(msg.chat.id, helpMessage, { parse_mode: 'Markdown' });
       });
 
@@ -213,9 +212,164 @@ async function bootTelegramBotEngine() {
         telegramBot.sendMessage(msg.chat.id, profileContent, { parse_mode: 'Markdown' });
       });
 
+      telegramBot.onText(/\/update/, async (msg) => {
+        try {
+          interactiveSessionStatesPool.delete(msg.chat.id);
+
+          const rawJobs = await jobsCollection.find({ owner: "admin" }).toArray();
+          if (rawJobs.length === 0) {
+            return telegramBot.sendMessage(msg.chat.id, '📟 *AeonMatrix Control Plane:* No running orchestration pools found in MongoDB Atlas storage layers.', { parse_mode: 'Markdown' });
+          }
+
+          const inlineKeyboardButtons = rawJobs.map(job => [{
+            text: `⚙️ ${job.name.slice(0, 32)} [${job.status.toUpperCase()}]`,
+            callback_data: `select_job:${job.id}`
+          }]);
+
+          await telegramBot.sendMessage(msg.chat.id, '📟 *Select Target Pipeline Thread to Calibrate:*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: inlineKeyboardButtons }
+          });
+        } catch (err) {
+          telegramBot.sendMessage(msg.chat.id, `❌ Menu deployment failure: ${err.message}`);
+        }
+      });
+
+      telegramBot.on('callback_query', async (callbackQuery) => {
+        const chatId = callbackQuery.message.chat.id;
+        const messageId = callbackQuery.message.message_id;
+        const payloadData = callbackQuery.data;
+
+        await telegramBot.answerCallbackQuery(callbackQuery.id);
+
+        try {
+          if (payloadData.startsWith('select_job:')) {
+            const jobId = payloadData.split(':')[1];
+            const targetJob = await jobsCollection.findOne({ id: jobId });
+
+            if (!targetJob) {
+              return telegramBot.sendMessage(chatId, '❌ *Database Exception:* Target tracking artifact has vanished.');
+            }
+
+            const toggleLabel = targetJob.status === 'active' ? '⏸ Pause Execution' : '▶ Re-Activate Thread';
+
+            const interactiveControlMenu = {
+              inline_keyboard: [
+                [
+                  { text: '⏱ Shifts Schedule Mapping', callback_data: `mod_time:${jobId}` },
+                  { text: toggleLabel, callback_data: `mod_state:${jobId}` }
+                ],
+                [
+                  { text: '🗑 Purge Thread from Cluster', callback_data: `mod_purge:${jobId}` }
+                ],
+                [
+                  { text: '◀ Return to Main Panel', callback_data: 'nav_back_main' }
+                ]
+              ]
+            };
+
+            await telegramBot.editMessageText(`🛠 *Calibrating Target Vector:*\n\n• *Name:* \`${escapeMarkdown(targetJob.name)}\`\n• *Task:* \`${escapeMarkdown(targetJob.task)}\`\n• *Active Schedule:* \`${targetJob.schedule}\`\n• *Metrics State:* \`${targetJob.status.toUpperCase()}\``, {
+              chat_id: chatId,
+              message_id: messageId,
+              parse_mode: 'Markdown',
+              reply_markup: interactiveControlMenu
+            });
+          }
+
+          else if (payloadData.startsWith('mod_state:')) {
+            const jobId = payloadData.split(':')[1];
+            const targetJob = await jobsCollection.findOne({ id: jobId });
+
+            if (targetJob) {
+              const adjustedStatus = targetJob.status === 'active' ? 'paused' : 'active';
+              await jobsCollection.updateOne({ id: jobId }, { $set: { status: adjustedStatus } });
+
+              const freshJobState = await jobsCollection.findOne({ id: jobId });
+              if (adjustedStatus === 'paused') {
+                stopCronForJob(jobId);
+              } else {
+                activateCronForJob(freshJobState);
+              }
+
+              await telegramBot.sendMessage(chatId, `⚙️ *AeonMatrix Database Sync Matrix Complete*\n\n• *Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Update Action:* Status Mutated\n• *New State:* \`${adjustedStatus.toUpperCase()}\``, { parse_mode: 'Markdown' });
+              telegramBot.deleteMessage(chatId, messageId).catch(() => { });
+            }
+          }
+
+          else if (payloadData.startsWith('mod_purge:')) {
+            const jobId = payloadData.split(':')[1];
+            const targetJob = await jobsCollection.findOne({ id: jobId });
+
+            if (targetJob) {
+              stopCronForJob(jobId);
+              await jobsCollection.deleteOne({ id: jobId });
+              await telegramBot.sendMessage(chatId, `🗑 *Thread Purged Cleanly*\n\n• *Wiped Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Database State:* Document records removed.`, { parse_mode: 'Markdown' });
+              telegramBot.deleteMessage(chatId, messageId).catch(() => { });
+            }
+          }
+
+          else if (payloadData.startsWith('mod_time:')) {
+            const jobId = payloadData.split(':')[1];
+            interactiveSessionStatesPool.set(chatId, { step: 'AWAITING_CRON_STRING', targetJobId: jobId });
+
+            await telegramBot.sendMessage(chatId, '⏱ *Provide New Precise Schedule Configuration Vector:*\n\nSend your new raw timing or relative parameters string layout as a direct text reply (e.g. `every 10 minutes`, `0 30 9 * * *`, `remind me in 2 hours`).', { parse_mode: 'Markdown' });
+            telegramBot.deleteMessage(chatId, messageId).catch(() => { });
+          }
+
+          else if (payloadData === 'nav_back_main') {
+            telegramBot.deleteMessage(chatId, messageId).catch(() => { });
+            const rawJobs = await jobsCollection.find({ owner: "admin" }).toArray();
+            const inlineKeyboardButtons = rawJobs.map(job => [{
+              text: `⚙️ ${job.name.slice(0, 32)} [${job.status.toUpperCase()}]`,
+              callback_data: `select_job:${job.id}`
+            }]);
+            await telegramBot.sendMessage(chatId, '📟 *Select Target Pipeline Thread to Calibrate:*', {
+              parse_mode: 'Markdown',
+              reply_markup: { inline_keyboard: inlineKeyboardButtons }
+            });
+          }
+        } catch (err) {
+          console.error('❌ Callback Query Processing Error:', err.message);
+        }
+      });
+
       telegramBot.on('message', async (msg) => {
         const text = msg.text || '';
-        if (text.startsWith('/start') || text.startsWith('/help') || text.startsWith('/status') || text.startsWith('/resume')) return;
+        const chatId = msg.chat.id;
+
+        if (text.startsWith('/start') || text.startsWith('/help') || text.startsWith('/status') || text.startsWith('/resume') || text.startsWith('/update')) return;
+
+        if (interactiveSessionStatesPool.has(chatId)) {
+          const contextState = interactiveSessionStatesPool.get(chatId);
+
+          if (contextState.step === 'AWAITING_CRON_STRING') {
+            interactiveSessionStatesPool.delete(chatId);
+
+            await telegramBot.sendMessage(chatId, '🧠 Intercepting custom input vectors... Parsing update tokens via NaraRouter engine layers...');
+
+            try {
+              const targetJob = await jobsCollection.findOne({ id: contextState.targetJobId });
+              if (!targetJob) throw new Error("Target pipeline context was deleted mid-transaction.");
+
+              const temporaryMockJob = await parsePrompt(text);
+
+              await jobsCollection.updateOne(
+                { id: targetJob.id },
+                { $set: { schedule: temporaryMockJob.schedule, isOneOff: temporaryMockJob.isOneOff } }
+              );
+
+              const fullyUpdatedJob = await jobsCollection.findOne({ id: targetJob.id });
+              activateCronForJob(fullyUpdatedJob);
+
+              const successMessage = `⚙️ *AeonMatrix Calibration Matrix Complete*\n\n• *Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Update Action:* Schedule Shifted\n• *New Target Cron Map:* \`${fullyUpdatedJob.schedule}\`\n• *Status:* Background processing loop recalibrated live.`;
+              return await telegramBot.sendMessage(chatId, successMessage, { parse_mode: 'Markdown' });
+
+            } catch (err) {
+              console.error('❌ Stateful calibration intercept failure:', err.message);
+              return await telegramBot.sendMessage(chatId, `⚠️ *Hermes Core Rejection:* Failed to process schedule change input format. Reason: ${escapeMarkdown(err.message)}`, { parse_mode: 'Markdown' });
+            }
+          }
+        }
 
         const currentCfg = await getSystemConfig();
 
@@ -264,93 +418,6 @@ async function bootTelegramBotEngine() {
               task: j.task
             }));
 
-            const requestsMutation = /\b(change|update|modify|alter|edit|pause|stop|resume|start|delete|purge)\b/i.test(text) &&
-              /\b(cron|time|schedule|loop|job|pipeline|pool)\b/i.test(text);
-
-            if (requestsMutation) {
-              const mutationSystemInstruction = `You are the core database mutation parser of AeonMatrix.
-Current Baseline Reference Time: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'medium' })}.
-
-Your job is to read the user's update request, cross-reference it against the [ACTIVE JOBS POOL], and return a strict JSON action output map matching this scheme perfectly:
-{
-  "action": "update_schedule" | "pause_job" | "resume_job" | "delete_job" | "none",
-  "targetJobId": "string_of_matched_job_id",
-  "newCronSchedule": "6-field cron string or null if action doesn't require schedule change",
-  "reason": "Clear explanation of what change you are processing"
-}
-
-CRITICAL RULES FOR SCHEDULE MODIFICATION:
-1. COMPLETE OVERWRITE RULE: When changing a schedule from a range (e.g., '30-40') to a specific single time point (e.g., '9:20am'), you MUST completely clear out the range and replace the field with the single absolute number target (e.g., '0 20 9 13 7 *'). Never preserve old hyphens or interval tokens.
-
-[ACTIVE JOBS POOL]:
-${JSON.stringify(compactJobsMatrix, null, 2)}`;
-
-              const mutationCall = await naraClient.chat.completions.create({
-                model: 'mistral-large',
-                response_format: { type: 'json_object' },
-                temperature: 0,
-                messages: [{ role: 'system', content: mutationSystemInstruction }, { role: 'user', content: text }]
-              });
-
-              const mutationResult = JSON.parse(mutationCall.choices?.[0]?.message?.content || '{}');
-
-              if (mutationResult.action && mutationResult.action !== 'none' && mutationResult.targetJobId) {
-                const targetJob = await jobsCollection.findOne({ id: mutationResult.targetJobId });
-                if (targetJob) {
-                  if (mutationResult.action === 'update_schedule' && mutationResult.newCronSchedule) {
-                    await jobsCollection.updateOne({ id: targetJob.id }, { $set: { schedule: mutationResult.newCronSchedule } });
-                    const updated = await jobsCollection.findOne({ id: targetJob.id });
-                    activateCronForJob(updated);
-
-                    const updateConfirmation = `⚙️ *AeonMatrix Database Sync Matrix Complete*\n\n• *Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Update Action:* Schedule Shifted\n• *New Target Cron Map:* \`${mutationResult.newCronSchedule}\`\n• *Status:* Dynamic Loop Recalibrated Live.`;
-
-                    try {
-                      return await telegramBot.sendMessage(msg.chat.id, updateConfirmation, { parse_mode: 'Markdown' });
-                    } catch {
-                      return await telegramBot.sendMessage(msg.chat.id, updateConfirmation.replace(/[\*\_`#\-]/g, ''));
-                    }
-                  }
-                  else if (mutationResult.action === 'pause_job') {
-                    await jobsCollection.updateOne({ id: targetJob.id }, { $set: { status: 'paused' } });
-                    stopCronForJob(targetJob.id);
-
-                    const pauseConfirmation = `⏸ *Pipeline Block Paused Successfully*\n\n• *Thread Name:* ${escapeMarkdown(targetJob.name)}\n• *State:* Halted in Thread PoolRegistry.`;
-
-                    try {
-                      return await telegramBot.sendMessage(msg.chat.id, pauseConfirmation, { parse_mode: 'Markdown' });
-                    } catch {
-                      return await telegramBot.sendMessage(msg.chat.id, pauseConfirmation.replace(/[\*\_`#\-]/g, ''));
-                    }
-                  }
-                  else if (mutationResult.action === 'resume_job') {
-                    await jobsCollection.updateOne({ id: targetJob.id }, { $set: { status: 'active' } });
-                    const updated = await jobsCollection.findOne({ id: targetJob.id });
-                    activateCronForJob(updated);
-
-                    const resumeConfirmation = `▶ *Pipeline Vector Re-Activated*\n\n• *Thread Name:* ${escapeMarkdown(targetJob.name)}\n• *State:* Active standard looping thread synced.`;
-
-                    try {
-                      return await telegramBot.sendMessage(msg.chat.id, resumeConfirmation, { parse_mode: 'Markdown' });
-                    } catch {
-                      return await telegramBot.sendMessage(msg.chat.id, resumeConfirmation.replace(/[\*\_`#\-]/g, ''));
-                    }
-                  }
-                  else if (mutationResult.action === 'delete_job') {
-                    stopCronForJob(targetJob.id);
-                    await jobsCollection.deleteOne({ id: targetJob.id });
-
-                    const deleteConfirmation = `🗑 *Thread Purged Cleanly*\n\n• *Wiped Pipeline:* ${escapeMarkdown(targetJob.name)}\n• *Database State:* Document records removed.`;
-
-                    try {
-                      return await telegramBot.sendMessage(msg.chat.id, deleteConfirmation, { parse_mode: 'Markdown' });
-                    } catch {
-                      return await telegramBot.sendMessage(msg.chat.id, deleteConfirmation.replace(/[\*\_`#\-]/g, ''));
-                    }
-                  }
-                }
-              }
-            }
-
             const systemInstruction = `You are the primary cognitive routing and execution node of the Hermes Automation Matrix (AeonMatrix).
 Current Reference Time: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })}.
 
@@ -386,13 +453,10 @@ ${currentCfg.userResume || 'No user resume profile uploaded.'}`;
           }
         }
       });
-    } catch (err) {
-      console.error('⚠️ Telegram initialization exception caught:', err.message);
-    } finally {
-      isBotBooting = false;
-    }
-  } else {
-    console.warn('⚠️ No Bot Token configured inside App UI Storage Setup.');
+    } // 🚀 FIXED: Closed the 'if (rawToken && rawToken.trim() !== "")' block cleanly here.
+  } catch (err) {
+    console.error('⚠️ Telegram initialization exception caught:', err.message);
+  } finally {
     isBotBooting = false;
   }
 }
@@ -674,10 +738,10 @@ function activateCronForJob(job) {
 
   // 1. Intercept Short-Lived One-Off Timers under 3 minutes
   const textCheck = String(job.task).toLowerCase();
-  const isShortTimer = job.isOneOff && 
-                       (/\b(\d+)\s*(s|sec|second|m|min|minute)s?\b/.test(textCheck) || 
-                        job.description.toLowerCase().includes("seconds from now") || 
-                        job.description.toLowerCase().includes("in "));
+  const isShortTimer = job.isOneOff &&
+    (/\b(\d+)\s*(s|sec|second|m|min|minute)s?\b/.test(textCheck) ||
+      job.description.toLowerCase().includes("seconds from now") ||
+      job.description.toLowerCase().includes("in "));
 
   if (isShortTimer) {
     const match = textCheck.match(/\b(\d+)\s*(s|sec|second|m|min|minute)s?\b/);

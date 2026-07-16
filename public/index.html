@@ -286,6 +286,7 @@
     let notificationsEnabled = true;
     let globalJobsCache = [];
 
+    let notifiedJobIdsPool = new Set();
     const notificationAudio = new Audio('/sound_way.mp3');
 
     const authGate = document.getElementById('authGate');
@@ -466,62 +467,81 @@
         }
 
         if (notificationsEnabled && globalJobsCache.length > 0) {
-          // 1. Check for updates on existing or changing jobs
+          // Iterate over cache tracking points to detect deletion parameters accurately
           globalJobsCache.forEach(previous => {
             const currentJob = jobs.find(j => j.id === previous.id);
             let clearTriggerDetected = false;
             let triggerTarget = previous;
+            let alertBodyText = previous.description || previous.task || "Timer execution loop complete.";
 
-            // Scenario A: The job ran, completed, and was cleared from the server array completely
-            if (!currentJob && previous.status === 'active') {
-              clearTriggerDetected = true;
+            // 🛑 ABSOLUTE DUPLICATE PROTECTION: Bypasses calculation loops if job has already fired a signal
+            if (notifiedJobIdsPool.has(previous.id)) return;
+
+            // Scenario A: The job ran, completed, and was cleared from the database array entirely
+            if (!currentJob) {
+              if (previous.status === 'active') {
+                clearTriggerDetected = true;
+              }
             }
-            // Scenario B: The job is still active, but has generated a fresh execution log entry
-            else if (currentJob && currentJob.logs && currentJob.logs.length > 0) {
+            // Scenario B: The job still exists, let's look for fresh log arrays mutations
+            else if (currentJob.logs && currentJob.logs.length > 0) {
               const hasNewLog = !previous.logs ||
                 previous.logs.length === 0 ||
                 previous.logs.length !== currentJob.logs.length ||
                 previous.logs[0].timestamp !== currentJob.logs[0].timestamp;
 
               if (hasNewLog) {
+                console.log(`[🔔 NOTIFICATION MATRIX] Caught explicit log state change payload: ${currentJob.name}`);
                 clearTriggerDetected = true;
                 triggerTarget = currentJob;
+                // Safely extract the literal execution output string text
+                alertBodyText = currentJob.logs[0].message || currentJob.description;
               }
             }
 
             if (clearTriggerDetected) {
-              console.log(`[🔔 NOTIFICATION MATRIX] Target match detected on thread: ${triggerTarget.name}`);
+              // Mark job ID instantly to ensure it can never trigger a double-sound notification block
+              notifiedJobIdsPool.add(previous.id);
+              
+              // Maintain memory management by cleaning up tracking maps systematically
+              setTimeout(() => notifiedJobIdsPool.delete(previous.id), 30000);
 
-              // Reset and ready the notification audio track
+              // Reset and ready the notification audio track stably
               notificationAudio.muted = false;
               notificationAudio.currentTime = 0;
 
               const playAudio = () => {
                 const playPromise = notificationAudio.play();
                 if (playPromise !== undefined) {
-                  playPromise.catch(e => console.warn('⚠️ Audio play blocked by browser interaction rules:', e.message));
+                  playPromise.catch(e => console.warn('⚠️ Audio play blocked by browser sandbox layout constraints:', e.message));
                 }
               };
 
-              // Leverage the system notification window if access has been granted
+              // Trigger native system OS notification engine context interface
               if ('Notification' in window && Notification.permission === 'granted') {
-                const notification = new Notification(`🔔 AeonMatrix Match [${triggerTarget.name}]`, {
-                  body: triggerTarget.description || triggerTarget.task,
-                  icon: '/favicon.ico'
+                // Strip raw markdown formatting tokens from rendering directly inside system UI notifications
+                const cleanBodyText = alertBodyText.replace(/[\*\_`#\-]/g, '');
+                
+                const notification = new Notification(`🔔 AeonMatrix: ${triggerTarget.name}`, {
+                  body: cleanBodyText,
+                  icon: '/favicon.ico',
+                  tag: triggerTarget.id, // Enforces exact unique identification parameters
+                  requireInteraction: false
                 });
 
                 notification.onshow = playAudio;
               } else {
-                // Persistent tab fallback execution pass if minimized or default permission state is active
+                // Fallback standard text loop execute path if window handles have direct interface focus
                 playAudio();
               }
             }
           });
         }
+
         globalJobsCache = jobs;
         renderJobsMatrixList(jobs);
       } catch (err) {
-        console.error('❌ Front-end telemetry fetch error:', err.message);
+        console.error("❌ Front-end state sync error:", err.message);
       }
     }
 
